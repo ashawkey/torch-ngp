@@ -5,11 +5,11 @@ A pytorch implementation of the HashGrid Encoder from [instant-ngp](https://gith
 # Progress
 
 * HashGrid Encoder
-    - [*] basic pytorch CUDA extension implementation
-    - [] speed optimization
+    - [x] basic pytorch CUDA extension implementation
+    - [ ] speed optimization
 * Experiments
-    - [*] SDF
-    - [] NeRF
+    - [x] SDF
+    - [ ] NeRF
 
 # Usage
 

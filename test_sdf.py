@@ -1,8 +1,5 @@
-import torch
-
-from netowrk import SDFNetwork
-from provider import SDFDataset
-from utils import *
+from sdf.netowrk import SDFNetwork
+from sdf.utils import *
 
 import argparse
 
