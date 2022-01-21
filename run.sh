@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=2 python train_sdf.py data/armadillo.obj --workspace trial_hash
