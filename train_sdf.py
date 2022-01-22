@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
     scheduler = lambda optimizer: optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
-    trainer = Trainer('ngp', model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, fp16=False, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
+    trainer = Trainer('ngp', model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=True, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
 
     trainer.train(train_loader, valid_loader, 20)
 

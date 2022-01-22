@@ -25,6 +25,7 @@ from torch.utils.data import Dataset, DataLoader
 import trimesh
 import mcubes
 from rich.console import Console
+from torch_ema import ExponentialMovingAverage
 
 def seed_everything(seed):
     random.seed(seed)
@@ -59,7 +60,7 @@ def extract_geometry(bound_min, bound_max, resolution, threshold, query_func):
     #print('threshold: {}'.format(threshold))
     u = extract_fields(bound_min, bound_max, resolution, query_func)
 
-    print(u.shape, u.max(), u.min(), np.percentile(u, 50))
+    #print(u.shape, u.max(), u.min(), np.percentile(u, 50))
     
     vertices, triangles = mcubes.marching_cubes(u, threshold)
 
@@ -77,6 +78,7 @@ class Trainer(object):
                  model, # network 
                  criterion=None, # loss function, if None, assume inline implementation in train_step
                  optimizer=None, # optimizer
+                 ema_decay=None, # if use EMA, set the decay
                  lr_scheduler=None, # scheduler
                  metrics=[], # metrics for evaluation, if None, use val_loss to measure performance, else use the first metric.
                  local_rank=0, # which GPU am I
@@ -100,6 +102,7 @@ class Trainer(object):
         self.local_rank = local_rank
         self.world_size = world_size
         self.workspace = workspace
+        self.ema_decay = ema_decay
         self.fp16 = fp16
         self.best_mode = best_mode
         self.use_loss_as_metric = use_loss_as_metric
@@ -131,6 +134,11 @@ class Trainer(object):
             self.lr_scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda epoch: 1) # fake scheduler
         else:
             self.lr_scheduler = lr_scheduler(self.optimizer)
+
+        if ema_decay is not None:
+            self.ema = ExponentialMovingAverage(self.model.parameters(), decay=ema_decay)
+        else:
+            self.ema = None
 
         if self.fp16:
             self.scaler = torch.cuda.amp.GradScaler()
@@ -349,6 +357,8 @@ class Trainer(object):
                 loss.backward()
                 self.optimizer.step()
 
+            if self.ema is not None:
+                self.ema.update()
 
             if self.scheduler_update_every_step:
                 self.lr_scheduler.step()
@@ -408,7 +418,15 @@ class Trainer(object):
                 self.local_step += 1
                 
                 data = self.prepare_data(data)
+
+                if self.ema is not None:
+                    self.ema.store()
+                    self.ema.copy_to()
+
                 preds, truths, loss = self.eval_step(data)
+
+                if self.ema is not None:
+                    self.ema.restore()                
                 
                 # all_gather/reduce the statistics (NCCL only support all_*)
                 if self.world_size > 1:
@@ -455,11 +473,19 @@ class Trainer(object):
 
     def save_checkpoint(self, full=False, best=False):
 
+        if self.ema is not None:
+            # save ema instead of current
+            self.ema.store()
+            self.ema.copy_to()
+
         state = {
             'epoch': self.epoch,
             'stats': self.stats,
             'model': self.model.state_dict(),
         }
+
+        if self.ema is not None:
+            self.ema.restore()
 
         if full:
             state['optimizer'] = self.optimizer.state_dict()

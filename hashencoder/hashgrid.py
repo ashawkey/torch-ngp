@@ -30,7 +30,7 @@ class _hash_encode(Function):
         else:
             dy_dx = torch.zeros(1).to(inputs.device)
 
-        _backend.encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, H, calc_grad_inputs, dy_dx)
+        _backend.hash_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, H, calc_grad_inputs, dy_dx)
 
         ctx.save_for_backward(inputs, embeddings, offsets, dy_dx)
         ctx.dims = [B, D, C, L, H]
@@ -55,7 +55,7 @@ class _hash_encode(Function):
         else:
             grad_inputs = torch.zeros(1).to(inputs.device)
 
-        _backend.encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, H, calc_grad_inputs, dy_dx, grad_inputs)
+        _backend.hash_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, H, calc_grad_inputs, dy_dx, grad_inputs)
 
         if calc_grad_inputs:
             return grad_inputs, grad_embeddings, None, None, None
@@ -67,32 +67,33 @@ hash_encode = _hash_encode.apply
 
 
 class HashEncoder(nn.Module):
-    def __init__(self, D=3, L=16, C=2, base_resolution=16, log2_hashmap_size=19):
+    def __init__(self, input_dim=3, num_levels=16, level_dim=2, base_resolution=16, log2_hashmap_size=19):
         super().__init__()
 
-        self.D = D # coord dims, 2 or 3
-        self.L = L # num levels, each level multiply resolution by 2
-        self.C = C # encode channels per level
+        self.input_dim = input_dim # coord dims, 2 or 3
+        self.num_levels = num_levels # num levels, each level multiply resolution by 2
+        self.level_dim = level_dim # encode channels per level
         self.log2_hashmap_size = log2_hashmap_size
         self.base_resolution = base_resolution
+        self.output_dim = num_levels * level_dim
 
         # allocate parameters
         self.offsets = []
         offset = 0
         self.max_params = 2 ** log2_hashmap_size
-        for i in range(L):
+        for i in range(num_levels):
             resolution = base_resolution * 2 ** i
-            params_in_level = min(self.max_params, (resolution + 1) ** D) # limit max number
+            params_in_level = min(self.max_params, (resolution + 1) ** input_dim) # limit max number
             #params_in_level = int(params_in_level / 8) * 8 # make divisible
             self.offsets.append(offset)
             offset += params_in_level
         self.offsets.append(offset)
         self.offsets = torch.from_numpy(np.array(self.offsets, dtype=np.int32))
         
-        self.n_params = self.offsets[-1] * C
+        self.n_params = self.offsets[-1] * level_dim
 
         # parameters
-        self.embeddings = nn.Parameter(torch.zeros(offset, C))
+        self.embeddings = nn.Parameter(torch.zeros(offset, level_dim))
 
         self.reset_parameters()
     
@@ -101,18 +102,18 @@ class HashEncoder(nn.Module):
         self.embeddings.data.uniform_(-std, std)
 
     def __repr__(self):
-        return f"HashEncoder: D={self.D} L={self.L} C={self.C} H={self.base_resolution} params={self.embeddings.shape}"
+        return f"HashEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} H={self.base_resolution} params={self.embeddings.shape}"
     
     def forward(self, inputs, size=1, calc_grad_inputs=False):
-        # inputs: [..., D], normalized real world positions in [-size, size]
-        # return: [..., L * C]
+        # inputs: [..., input_dim], normalized real world positions in [-size, size]
+        # return: [..., num_levels * level_dim]
 
-        inputs = (inputs + size) / (2 * size) # [0, 1]
+        inputs = (inputs + size) / (2 * size) # map to [0, 1]
 
         prefix_shape = list(inputs.shape[:-1])
-        inputs = inputs.reshape(-1, self.D)
+        inputs = inputs.reshape(-1, self.input_dim)
 
         outputs = hash_encode(inputs, self.embeddings, self.offsets, self.base_resolution, calc_grad_inputs)
-        outputs = outputs.reshape(prefix_shape + [self.L * self.C])
+        outputs = outputs.reshape(prefix_shape + [self.output_dim])
 
         return outputs

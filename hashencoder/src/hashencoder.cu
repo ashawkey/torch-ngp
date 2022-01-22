@@ -266,7 +266,7 @@ void kernel_grid_wrapper(const float *inputs, const float *embeddings, const int
 // offsets: [L + 1], uint32_t
 // outputs: [B, L * C], float
 // H: base resolution
-void encode_forward_cuda(const float *inputs, const float *embeddings, const int *offsets, float *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, float *dy_dx) {
+void hash_encode_forward_cuda(const float *inputs, const float *embeddings, const int *offsets, float *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, float *dy_dx) {
     switch (D) {
         case 2: kernel_grid_wrapper<2>(inputs, embeddings, offsets, outputs, B, C, L, H, calc_grad_inputs, dy_dx); break;
         case 3: kernel_grid_wrapper<3>(inputs, embeddings, offsets, outputs, B, C, L, H, calc_grad_inputs, dy_dx); break;
@@ -308,7 +308,7 @@ void kernel_grid_backward_wrapper(const float *grad, const float *inputs, const 
 // offsets: [L + 1], uint32_t
 // grad_embeddings: [sO, C]
 // H: base resolution
-void encode_backward_cuda(const float *grad, const float *inputs, const float *embeddings, const int *offsets, float *grad_embeddings, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, float *dy_dx, float *grad_inputs) {
+void hash_encode_backward_cuda(const float *grad, const float *inputs, const float *embeddings, const int *offsets, float *grad_embeddings, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, float *dy_dx, float *grad_inputs) {
     switch (D) {
         case 2: kernel_grid_backward_wrapper<2>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, H, calc_grad_inputs, dy_dx, grad_inputs); break;
         case 3: kernel_grid_backward_wrapper<3>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, H, calc_grad_inputs, dy_dx, grad_inputs); break;

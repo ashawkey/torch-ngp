@@ -1,1 +1,1 @@
-from .encoder import HashEncoder
+from .hashgrid import HashEncoder
