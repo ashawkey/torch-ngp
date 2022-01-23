@@ -180,7 +180,8 @@ class NeRFNetwork(nn.Module):
 
         # pertube z_vals
         sample_dist = (far - near) / num_steps
-        z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
+        if self.training:
+            z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
 
         # generate pts
         pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, T, 3] -> [B, N, T, 3]
@@ -231,7 +232,7 @@ class NeRFNetwork(nn.Module):
 
         ### render core
         deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]
-        deltas = torch.cat([deltas, 1e10 * torch.ones_like(deltas[:, :, :1])], dim=-1) # 1e10 is necessary... help to avoid weights_sum < 1
+        deltas = torch.cat([deltas, 1e10 * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
         alphas = 1 - torch.exp(-deltas * (F.relu(sigmas))) # [B, N, T]
         alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]

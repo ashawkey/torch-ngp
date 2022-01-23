@@ -4,8 +4,9 @@ A pytorch implementation of the HashGrid Encoder from [instant-ngp](https://gith
 
 **Note**: This repo only tries to implement the hash grid encoder for now, and is far from instant (especially for NeRF experiments).
 
-![](assets/fox.gif)
-![](assets/armadillo.jpg)
+SDF | NeRF
+:---: | :---:
+![](assets/armadillo.jpg) | ![](assets/fox.gif)
 
 # Progress
 
@@ -13,10 +14,12 @@ A pytorch implementation of the HashGrid Encoder from [instant-ngp](https://gith
     - [x] basic pytorch CUDA extension
     - [ ] fp16 support
 * Experiments
-    - [x] SDF
+    - SDF
+        - [x] baseline
         - [ ] better SDF calculation (especially for non-watertight meshes)
-    - [x] NeRF (cannot converge in 5s of course, but 50s is enough...)
-        - [ ] better ray marching strategy.
+    - NeRF
+        - [x] baseline (although much slower)
+        - [ ] ray marching in CUDA.
 
 
 # Usage

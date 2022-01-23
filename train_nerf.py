@@ -44,9 +44,9 @@ if __name__ == '__main__':
     optimizer = lambda model: torch.optim.Adam([
         {'name': 'encoding', 'params': list(model.encoder.parameters())},
         {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
-    ], lr=1e-3, betas=(0.9, 0.99), eps=1e-15)
+    ], lr=1e-2, betas=(0.9, 0.99), eps=1e-15)
 
-    scheduler = lambda optimizer: optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
+    scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150], gamma=0.33)
 
     trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=False, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
 
