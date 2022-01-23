@@ -108,34 +108,8 @@ class NeRFNetwork(nn.Module):
             color_net.append(nn.Linear(in_dim, out_dim, bias=False))
 
         self.color_net = nn.ModuleList(color_net)
-
-
-    def forward(self, pts, rays_d, bound, staged=False, max_batch_size=256000):
-        # pts: [B, N, 3]
-        # rays_d: [B, N, 3]
-
-        B, N = pts.shape[:2]
-
-        if staged:
-            sigmas = torch.zeros((B, N), device=pts.device)
-            rgbs = torch.zeros((B, N, 3), device=pts.device)
-
-            for b in range(B):
-                head = 0
-                while head < N:
-                    tail = min(head + max_batch_size, N)
-
-                    sigmas_, rgbs_ = self.run(pts[b:b+1, head:tail], rays_d[b:b+1, head:tail], bound)
-                    
-                    sigmas[b:b+1, head:tail] = sigmas_.reshape(1, -1)
-                    rgbs[b:b+1, head:tail] = rgbs_.reshape(1, -1, 3)
-                    head += max_batch_size
-        else:
-            sigmas, rgbs = self.run(pts, rays_d, bound)
-     
-        return sigmas, rgbs
     
-    def run(self, x, d, bound):
+    def forward(self, x, d, bound):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
 
@@ -161,14 +135,28 @@ class NeRFNetwork(nn.Module):
 
         return sigma, color
 
-    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_batch_size=256000, **kwargs):
-        # rays_o, rays_d: [B, N, 3]
+    def density(self, x, bound):
+        # x: [B, N, 3], in [-bound, bound]
+
+        x = self.encoder(x, size=bound)
+        h = x
+        for l in range(self.num_layers):
+            h = self.sigma_net[l](h)
+            if l != self.num_layers - 1:
+                h = F.relu(h, inplace=True)
+
+        sigma = h[..., 0]
+
+        return sigma
+
+    def run(self, rays_o, rays_d, num_steps, bound, upsample_steps):
+        # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
 
-        # sample steps
         B, N = rays_o.shape[:2]
         device = rays_o.device
 
+        # sample steps
         near = rays_o.norm(dim=-1, keepdim=True) - bound # [B, N, 1]
         far = near + 2 * bound
 
@@ -192,7 +180,7 @@ class NeRFNetwork(nn.Module):
 
         # query SDF and RGB
         rays_d_ = rays_d.unsqueeze(-2).expand_as(pts)
-        sigmas, rgbs = self(pts.reshape(B, -1, 3), rays_d=rays_d_.reshape(B, -1, 3), bound=bound, staged=staged, max_batch_size=max_batch_size)
+        sigmas, rgbs = self(pts.reshape(B, -1, 3), rays_d_.reshape(B, -1, 3), bound=bound)
         rgbs = rgbs.reshape(B, N, num_steps, 3) # [B, N, T, 3]
         sigmas = sigmas.reshape(B, N, num_steps) # [B, N, T]
 
@@ -216,7 +204,7 @@ class NeRFNetwork(nn.Module):
 
             # only forward new points to save computation
             new_rays_d_ = rays_d.unsqueeze(-2).expand_as(new_pts)
-            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), rays_d=new_rays_d_.reshape(B, -1, 3), bound=bound, staged=staged, max_batch_size=max_batch_size)
+            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), new_rays_d_.reshape(B, -1, 3), bound=bound)
             new_rgbs = new_rgbs.reshape(B, N, upsample_steps, 3) # [B, N, t, 3]
             new_sigmas = new_sigmas.reshape(B, N, upsample_steps) # [B, N, t]
 
@@ -249,10 +237,36 @@ class NeRFNetwork(nn.Module):
         image = torch.sum(weights.unsqueeze(-1) * rgbs, dim=-2) # [B, N, 3], in [0, 1]
         #image = image + (1 - weights_sum).unsqueeze(-1) # white background (infinite depth)
 
-        # construct results
+        return depth, image
+
+    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=256000, **kwargs):
+        # rays_o, rays_d: [B, N, 3], assumes B == 1
+        # return: pred_rgb: [B, N, 3]
+
+        B, N = rays_o.shape[:2]
+        device = rays_o.device
+
+        if staged:
+            depth = torch.zeros((B, N), device=device)
+            image = torch.zeros((B, N, 3), device=device)
+
+            for b in range(B):
+                head = 0
+                while head < N:
+                    tail = min(head + max_ray_batch, N)
+
+                    depth_, image_ = self.run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, bound, upsample_steps)
+                    
+                    depth[b:b+1, head:tail] = depth_
+                    image[b:b+1, head:tail] = image_
+
+                    head += max_ray_batch
+
+        else:
+            depth, image = self.run(rays_o, rays_d, num_steps, bound, upsample_steps)
+
         results = {}
-
-        results['depth'] = depth.reshape(B, -1)
-        results['rgb'] = image.reshape(B, -1, 3)
-
+        results['depth'] = depth
+        results['rgb'] = image
+            
         return results

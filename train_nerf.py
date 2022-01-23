@@ -17,7 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_rays', type=int, default=4096)
     parser.add_argument('--num_steps', type=int, default=128)
     parser.add_argument('--upsample_steps', type=int, default=128)
-    parser.add_argument('--max_batch_size', type=int, default=12800)
+    parser.add_argument('--max_ray_batch', type=int, default=4096)
     
     parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in sphere(0, size)")

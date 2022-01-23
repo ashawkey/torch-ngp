@@ -134,7 +134,7 @@ class Trainer(object):
                  model, # network 
                  criterion=None, # loss function, if None, assume inline implementation in train_step
                  optimizer=None, # optimizer
-                 ema_decay=None, # if use EMA, set the decay
+                 ema_decay=0.95, # if use EMA, set the decay
                  lr_scheduler=None, # scheduler
                  metrics=[], # metrics for evaluation, if None, use val_loss to measure performance, else use the first metric.
                  local_rank=0, # which GPU am I
@@ -196,6 +196,8 @@ class Trainer(object):
             self.ema = ExponentialMovingAverage(self.model.parameters(), decay=ema_decay)
         else:
             self.ema = None
+
+        # TODO: allocate a density_grid for ray marching.
 
         if self.fp16:
             self.scaler = torch.cuda.amp.GradScaler()
