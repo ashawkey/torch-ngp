@@ -12,7 +12,6 @@ import time
 from datetime import datetime
 
 import cv2
-from skimage import io
 import matplotlib.pyplot as plt
 
 import torch
@@ -49,7 +48,7 @@ def extract_fields(bound_min, bound_max, resolution, query_func):
         for xi, xs in enumerate(X):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
-                    xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                    xx, yy, zz = torch.meshgrid(xs, ys, zs) # indexing='ij'
                     pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0) # [1, N, 3]
                     val = query_func(pts).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy() # [1, N, 1] --> [x, y, z]
                     u[xi * N: xi * N + len(xs), yi * N: yi * N + len(ys), zi * N: zi * N + len(zs)] = val
@@ -140,8 +139,7 @@ class Trainer(object):
         else:
             self.ema = None
 
-        if self.fp16:
-            self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
 
         # variable init
         self.epoch = 1
@@ -170,7 +168,7 @@ class Trainer(object):
             self.best_path = f"{self.ckpt_path}/{self.name}.pth.tar"
             os.makedirs(self.ckpt_path, exist_ok=True)
             
-        self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {self.workspace}')
+        self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {"fp16" if self.fp16 else "fp32"} | {self.workspace}')
         self.log(f'[INFO] #parameters: {sum([p.numel() for p in model.parameters() if p.requires_grad])}')
 
         if self.workspace is not None:
@@ -208,8 +206,10 @@ class Trainer(object):
         # assert batch_size == 1
         X = data["points"][0] # [B, 3]
         y = data["sdfs"][0] # [B]
+        
         pred = self.model(X)
         loss = self.criterion(pred, y)
+
         return pred, y, loss
 
     def eval_step(self, data):
@@ -223,15 +223,17 @@ class Trainer(object):
     def save_mesh(self, save_path=None, resolution=256):
 
         if save_path is None:
-            save_path = os.path.join(self.workspace, 'results', f'{self.name}_{self.epoch}.ply')
+            save_path = os.path.join(self.workspace, 'validation', f'{self.name}_{self.epoch}.ply')
 
         self.log(f"==> Saving mesh to {save_path}")
 
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
         def query_func(pts):
+            pts = pts.to(self.device)
             with torch.no_grad():
-                sdfs = self.model(pts.to(self.device))
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    sdfs = self.model(pts)
             return sdfs
 
         bounds_min = torch.FloatTensor([-1, -1, -1])
@@ -275,27 +277,7 @@ class Trainer(object):
         self.evaluate_one_epoch(loader)
         self.use_tensorboardX = use_tensorboardX
 
-    def test(self, loader, save_path=None):
 
-        if save_path is None:
-            save_path = os.path.join(self.workspace, 'results', f'{self.name}')
-
-        os.makedirs(save_path, exist_ok=True)
-        
-        self.log(f"==> Start Test, save results to {save_path}")
-
-        pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
-        self.model.eval()
-        with torch.no_grad():
-            for data in loader:
-                
-                data = self.prepare_data(data)
-                preds = self.test_step(data)
-                preds = preds.detach().cpu().numpy() # [B, 1, H, W]
-
-                pbar.update(loader.batch_size)
-
-        self.log(f"==> Finished Test.")
 
     def prepare_data(self, data):
         if isinstance(data, list):
@@ -346,16 +328,11 @@ class Trainer(object):
 
             self.optimizer.zero_grad()
 
-            if self.fp16:
-                with torch.cuda.amp.autocast():
-                    preds, truths, loss = self.train_step(data)
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
+            with torch.cuda.amp.autocast(enabled=self.fp16):
                 preds, truths, loss = self.train_step(data)
-                loss.backward()
-                self.optimizer.step()
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
             if self.ema is not None:
                 self.ema.update()
@@ -422,11 +399,12 @@ class Trainer(object):
                 if self.ema is not None:
                     self.ema.store()
                     self.ema.copy_to()
-
-                preds, truths, loss = self.eval_step(data)
+            
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    preds, truths, loss = self.eval_step(data)
 
                 if self.ema is not None:
-                    self.ema.restore()                
+                    self.ema.restore()
                 
                 # all_gather/reduce the statistics (NCCL only support all_*)
                 if self.world_size > 1:
@@ -473,25 +451,20 @@ class Trainer(object):
 
     def save_checkpoint(self, full=False, best=False):
 
-        if self.ema is not None:
-            # save ema instead of current
-            self.ema.store()
-            self.ema.copy_to()
-
         state = {
             'epoch': self.epoch,
             'stats': self.stats,
-            'model': self.model.state_dict(),
         }
-
-        if self.ema is not None:
-            self.ema.restore()
 
         if full:
             state['optimizer'] = self.optimizer.state_dict()
             state['lr_scheduler'] = self.lr_scheduler.state_dict()
+            if self.ema is not None:
+                state['ema'] = self.ema.state_dict()
         
         if not best:
+
+            state['model'] = self.model.state_dict()
 
             file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}.pth.tar"
 
@@ -509,6 +482,17 @@ class Trainer(object):
                 if self.stats["best_result"] is None or self.stats["results"][-1] < self.stats["best_result"]:
                     self.log(f"[INFO] New best result: {self.stats['best_result']} --> {self.stats['results'][-1]}")
                     self.stats["best_result"] = self.stats["results"][-1]
+
+                    # save ema results 
+                    if self.ema is not None:
+                        self.ema.store()
+                        self.ema.copy_to()
+
+                    state['model'] = self.model.state_dict()
+
+                    if self.ema is not None:
+                        self.ema.restore()
+                    
                     torch.save(state, self.best_path)
             else:
                 self.log(f"[WARN] no evaluated results found, skip saving best checkpoint.")
@@ -532,6 +516,9 @@ class Trainer(object):
 
         self.model.load_state_dict(checkpoint_dict['model'])
         self.log("[INFO] loaded model.")
+
+        if self.ema is not None and 'ema' in checkpoint_dict:
+            self.ema.load_state_dict(checkpoint_dict['ema'])
 
         self.stats = checkpoint_dict['stats']
         self.epoch = checkpoint_dict['epoch']

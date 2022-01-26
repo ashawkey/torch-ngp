@@ -18,9 +18,12 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps', type=int, default=128)
     parser.add_argument('--upsample_steps', type=int, default=128)
     parser.add_argument('--max_ray_batch', type=int, default=4096)
+    parser.add_argument('--fp16', action='store_true')
     
     parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
-    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in sphere(0, size)")
+    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-size, size)")
+
+    parser.add_argument('--cuda_raymarching', action='store_true', help="use CUDA raymarching instead of pytorch (unstable now)")
 
     opt = parser.parse_args()
 
@@ -34,7 +37,12 @@ if __name__ == '__main__':
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
     
-    model = NeRFNetwork(encoding="hashgrid", encoding_dir="sphere_harmonics", num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64)
+    model = NeRFNetwork(
+        encoding="hashgrid", encoding_dir="sphere_harmonics", 
+        num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
+        density_grid_size=128 if opt.cuda_raymarching else -1,
+    )
+
     #model = NeRFNetwork(encoding="frequency", encoding_dir="frequency", num_layers=4, hidden_dim=256, geo_feat_dim=256, num_layers_color=4, hidden_dim_color=128)
 
     print(model)
@@ -48,11 +56,11 @@ if __name__ == '__main__':
 
     scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150], gamma=0.33)
 
-    trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=False, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
+    trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
 
     trainer.train(train_loader, valid_loader, 200)
 
     # test dataset
-    test_dataset = NeRFDataset(opt.path, 'test', downscale=4, radius=opt.radius)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
-    trainer.test(test_loader)
+    # test_dataset = NeRFDataset(opt.path, 'test', downscale=4, radius=opt.radius)
+    # test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+    # trainer.test(test_loader)

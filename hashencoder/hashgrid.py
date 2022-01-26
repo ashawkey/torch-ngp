@@ -3,11 +3,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from torch.cuda.amp import custom_bwd, custom_fwd 
 
 from .backend import _backend
 
 class _hash_encode(Function):
     @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
+    #@custom_fwd
     def forward(ctx, inputs, embeddings, offsets, base_resolution, calc_grad_inputs=False):
         # inputs: [B, D], float in [0, 1]
         # embeddings: [sO, C], float
@@ -23,12 +26,12 @@ class _hash_encode(Function):
         C = embeddings.shape[1] # embedding dim for each level
         H = base_resolution # base resolution
 
-        outputs = torch.zeros(B,  L * C, device=inputs.device)
+        outputs = torch.zeros(B,  L * C, device=inputs.device, dtype=inputs.dtype)
 
         if calc_grad_inputs:
-            dy_dx = torch.zeros(B, L * D * C).to(inputs.device)
+            dy_dx = torch.zeros(B, L * D * C).to(inputs.device, dtype=inputs.dtype)
         else:
-            dy_dx = torch.zeros(1).to(inputs.device)
+            dy_dx = torch.zeros(1).to(inputs.device, dtype=inputs.dtype)
 
         _backend.hash_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, H, calc_grad_inputs, dy_dx)
 
@@ -39,6 +42,7 @@ class _hash_encode(Function):
         return outputs
     
     @staticmethod
+    @custom_bwd
     def backward(ctx, grad):
         # grad: [B, L * C]
 
@@ -53,7 +57,7 @@ class _hash_encode(Function):
         if calc_grad_inputs:
             grad_inputs = torch.zeros_like(inputs)
         else:
-            grad_inputs = torch.zeros(1).to(inputs.device)
+            grad_inputs = torch.zeros(1).to(inputs.device, dtype=inputs.dtype)
 
         _backend.hash_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, H, calc_grad_inputs, dy_dx, grad_inputs)
 
@@ -108,12 +112,19 @@ class HashEncoder(nn.Module):
         # inputs: [..., input_dim], normalized real world positions in [-size, size]
         # return: [..., num_levels * level_dim]
 
+        if inputs.min().item() < -size or inputs.max().item() > size:
+            raise ValueError(f'HashGrid encoder: inputs range [{inputs.min().item()}, {inputs.max().item()}] not in [{-size}, {size}]!')
+
         inputs = (inputs + size) / (2 * size) # map to [0, 1]
+        
+        #print('inputs', inputs.shape, inputs.dtype, inputs.min().item(), inputs.max().item())
 
         prefix_shape = list(inputs.shape[:-1])
-        inputs = inputs.reshape(-1, self.input_dim)
+        inputs = inputs.view(-1, self.input_dim) # this consumes most time ?????
 
         outputs = hash_encode(inputs, self.embeddings, self.offsets, self.base_resolution, calc_grad_inputs)
-        outputs = outputs.reshape(prefix_shape + [self.output_dim])
+        outputs = outputs.view(prefix_shape + [self.output_dim])
+
+        #print('outputs', outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())
 
         return outputs

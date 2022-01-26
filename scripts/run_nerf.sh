@@ -1,1 +1,1 @@
-OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=2 python train_nerf.py data/fox --workspace trial_nerf
+OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=2 python train_nerf.py data/fox --workspace trial_nerf --fp16

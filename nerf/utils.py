@@ -21,6 +21,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
 
+import trimesh
 import mcubes
 from rich.console import Console
 from torch_ema import ExponentialMovingAverage
@@ -65,7 +66,7 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     rays_o = c2w[..., :3, 3] # [B, 3]
     prefix = c2w.shape[:-2]
 
-    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing='ij')
+    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H)) # indexing="ij"
     i = i.t().to(device).reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
     j = j.t().to(device).reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
 
@@ -104,7 +105,7 @@ def extract_fields(bound_min, bound_max, resolution, query_func):
         for xi, xs in enumerate(X):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
-                    xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                    xx, yy, zz = torch.meshgrid(xs, ys, zs) # indexing='ij'
                     pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0) # [1, N, 3]
                     val = query_func(pts).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy() # [1, N, 1] --> [x, y, z]
                     u[xi * N: xi * N + len(xs), yi * N: yi * N + len(ys), zi * N: zi * N + len(zs)] = val
@@ -115,7 +116,7 @@ def extract_geometry(bound_min, bound_max, resolution, threshold, query_func):
     #print('threshold: {}'.format(threshold))
     u = extract_fields(bound_min, bound_max, resolution, query_func)
 
-    print(u.shape, u.max(), u.min(), np.percentile(u, 50))
+    #print(u.shape, u.max(), u.min(), np.percentile(u, 50))
     
     vertices, triangles = mcubes.marching_cubes(u, threshold)
 
@@ -134,7 +135,7 @@ class Trainer(object):
                  model, # network 
                  criterion=None, # loss function, if None, assume inline implementation in train_step
                  optimizer=None, # optimizer
-                 ema_decay=0.95, # if use EMA, set the decay
+                 ema_decay=None, # if use EMA, set the decay
                  lr_scheduler=None, # scheduler
                  metrics=[], # metrics for evaluation, if None, use val_loss to measure performance, else use the first metric.
                  local_rank=0, # which GPU am I
@@ -197,10 +198,7 @@ class Trainer(object):
         else:
             self.ema = None
 
-        # TODO: allocate a density_grid for ray marching.
-
-        if self.fp16:
-            self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
 
         # variable init
         self.epoch = 1
@@ -229,7 +227,7 @@ class Trainer(object):
             self.best_path = f"{self.ckpt_path}/{self.name}.pth.tar"
             os.makedirs(self.ckpt_path, exist_ok=True)
             
-        self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {self.workspace}')
+        self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {"fp16" if self.fp16 else "fp32"} | {self.workspace}')
         self.log(f'[INFO] #parameters: {sum([p.numel() for p in model.parameters() if p.requires_grad])}')
 
         if self.workspace is not None:
@@ -277,7 +275,9 @@ class Trainer(object):
         #print('rays_d', rays_d.shape, rays_d.min().item(), '~', rays_d.max().item(), rays_d[0, 0])
         #print('gt_rgb', gt_rgb.shape, gt_rgb.min().item(), '~', gt_rgb.max().item(), gt_rgb[0, 0])
         
+        #with torch.autograd.profiler.emit_nvtx():
         outputs = self.model.render(rays_o, rays_d, staged=False, **self.conf)
+            
         pred_rgb = outputs['rgb']
 
         #print('pred_rgb', pred_rgb.shape, pred_rgb.min().item(), '~', pred_rgb.max().item(), pred_rgb[0, 0])
@@ -295,7 +295,9 @@ class Trainer(object):
         B, H, W, C = images.shape
         rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
         
+        #with torch.autograd.profiler.emit_nvtx():
         outputs = self.model.render(rays_o, rays_d, staged=True, **self.conf)
+
         pred_rgb = outputs['rgb'].reshape(B, H, W, C)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
@@ -315,6 +317,32 @@ class Trainer(object):
         pred_depth = outputs['depth'].reshape(B, H, W)
 
         return pred_rgb, pred_depth
+
+
+    def save_mesh(self, save_path=None, resolution=256, threshold=5):
+
+        if save_path is None:
+            save_path = os.path.join(self.workspace, 'meshes', f'{self.name}_{self.epoch}.ply')
+
+        self.log(f"==> Saving mesh to {save_path}")
+
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+        def query_func(pts):
+            with torch.no_grad():
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    sdfs = self.model.density(pts.to(self.device), self.conf['bound'])
+            return sdfs
+
+        bounds_min = torch.FloatTensor([-1, -1, -1])
+        bounds_max = torch.FloatTensor([1, 1, 1])
+
+        vertices, triangles = extract_geometry(bounds_min, bounds_max, resolution=resolution, threshold=threshold, query_func=query_func)
+
+        mesh = trimesh.Trimesh(vertices, triangles, process=False) # important, process=True leads to seg fault...
+        mesh.export(save_path)
+
+        self.log(f"==> Finished saving mesh.")
 
     ### ------------------------------
 
@@ -361,7 +389,9 @@ class Trainer(object):
             for i, data in enumerate(loader):
                 
                 data = self.prepare_data(data)
-                preds, preds_depth = self.test_step(data)
+
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    preds, preds_depth = self.test_step(data)                
                 
                 path = os.path.join(save_path, f'{i:04d}.png')
                 path_depth = os.path.join(save_path, f'{i:04d}_depth.png')
@@ -405,6 +435,10 @@ class Trainer(object):
 
         self.model.train()
 
+        # update grid
+        if self.model.density_grid is not None:
+            self.model.update_density_grid(self.conf['bound'])
+
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
         if self.world_size > 1:
@@ -424,16 +458,11 @@ class Trainer(object):
 
             self.optimizer.zero_grad()
 
-            if self.fp16:
-                with torch.cuda.amp.autocast():
-                    preds, truths, loss = self.train_step(data)
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
+            with torch.cuda.amp.autocast(enabled=self.fp16):
                 preds, truths, loss = self.train_step(data)
-                loss.backward()
-                self.optimizer.step()
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             
             if self.ema is not None:
                 self.ema.update()
@@ -501,7 +530,8 @@ class Trainer(object):
                     self.ema.store()
                     self.ema.copy_to()
 
-                preds, preds_depth, truths, loss = self.eval_step(data)
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    preds, preds_depth, truths, loss = self.eval_step(data)
 
                 if self.ema is not None:
                     self.ema.restore()
@@ -566,25 +596,20 @@ class Trainer(object):
 
     def save_checkpoint(self, full=False, best=False):
 
-        if self.ema is not None:
-            # save ema instead of current
-            self.ema.store()
-            self.ema.copy_to()
-
         state = {
             'epoch': self.epoch,
             'stats': self.stats,
-            'model': self.model.state_dict(),
         }
-
-        if self.ema is not None:
-            self.ema.restore()
 
         if full:
             state['optimizer'] = self.optimizer.state_dict()
             state['lr_scheduler'] = self.lr_scheduler.state_dict()
+            if self.ema is not None:
+                state['ema'] = self.ema.state_dict()
         
         if not best:
+
+            state['model'] = self.model.state_dict()
 
             file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}.pth.tar"
 
@@ -602,6 +627,17 @@ class Trainer(object):
                 if self.stats["best_result"] is None or self.stats["results"][-1] < self.stats["best_result"]:
                     self.log(f"[INFO] New best result: {self.stats['best_result']} --> {self.stats['results'][-1]}")
                     self.stats["best_result"] = self.stats["results"][-1]
+
+                    # save ema results 
+                    if self.ema is not None:
+                        self.ema.store()
+                        self.ema.copy_to()
+
+                    state['model'] = self.model.state_dict()
+
+                    if self.ema is not None:
+                        self.ema.restore()
+                    
                     torch.save(state, self.best_path)
             else:
                 self.log(f"[WARN] no evaluated results found, skip saving best checkpoint.")
@@ -625,6 +661,9 @@ class Trainer(object):
 
         self.model.load_state_dict(checkpoint_dict['model'])
         self.log("[INFO] loaded model.")
+
+        if self.ema is not None and 'ema' in checkpoint_dict:
+            self.ema.load_state_dict(checkpoint_dict['ema'])
 
         self.stats = checkpoint_dict['stats']
         self.epoch = checkpoint_dict['epoch']

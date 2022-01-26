@@ -1,8 +1,13 @@
+import time
+import mcubes
+import trimesh
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from encoding import get_encoder
+import raymarching
 
 def sample_pdf(bins, weights, n_samples, det=False):
     # This implementation is from NeRF
@@ -40,16 +45,39 @@ def sample_pdf(bins, weights, n_samples, det=False):
 
     return samples
 
+
+def near_far_from_bound(rays_o, rays_d, bound, type='cube'):
+    # rays: [B, N, 3], [B, N, 3]
+    # bound: int, radius for ball or half-edge-length for cube
+    # return near [B, N, 1], far [B, N, 1]
+
+    radius = rays_o.norm(dim=-1, keepdim=True)
+
+    if type == 'sphere':
+        near = radius - bound # [B, N, 1]
+        far = radius + bound
+
+    elif type == 'cube':
+        tmin = (-bound - rays_o) / rays_d # [B, N, 3]
+        tmax = (bound - rays_o) / rays_d
+        near = torch.where(tmin < tmax, tmin, tmax).max(dim=-1, keepdim=True)[0]
+        far = torch.where(tmin > tmax, tmin, tmax).min(dim=-1, keepdim=True)[0]
+
+        near = torch.clamp(near, min=0.05)
+
+    return near, far
+
+
 def plot_pointcloud(pc, color=None):
     # pc: [N, 3]
     # color: [N, 3/4]
-    import trimesh
     pc = trimesh.PointCloud(pc, color)
     # axis
     axes = trimesh.creation.axis(axis_length=4)
     # sphere
     sphere = trimesh.creation.icosphere(radius=1)
     trimesh.Scene([pc, axes, sphere]).show()
+
 
 # NeRF-SH
 class NeRFNetwork(nn.Module):
@@ -61,10 +89,10 @@ class NeRFNetwork(nn.Module):
                  geo_feat_dim=15,
                  num_layers_color=4,
                  hidden_dim_color=64,
+                 density_grid_size=-1, # density grid size
                  ):
         super().__init__()
 
-        
         # sigma network
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
@@ -108,6 +136,16 @@ class NeRFNetwork(nn.Module):
             color_net.append(nn.Linear(in_dim, out_dim, bias=False))
 
         self.color_net = nn.ModuleList(color_net)
+
+        # density grid
+        if density_grid_size > 0:
+            # buffer is like parameter but never requires_grad
+            density_grid = torch.zeros([density_grid_size + 1] * 3) # +1 because we save values at grid
+            self.register_buffer('density_grid', density_grid)
+            self.mean_density = 0
+            self.iter_density = 0
+        else:
+            self.density_grid = None
     
     def forward(self, x, d, bound):
         # x: [B, N, 3], in [-bound, bound]
@@ -115,14 +153,18 @@ class NeRFNetwork(nn.Module):
 
         # sigma
         x = self.encoder(x, size=bound)
+
         h = x
         for l in range(self.num_layers):
             h = self.sigma_net[l](h)
             if l != self.num_layers - 1:
                 h = F.relu(h, inplace=True)
 
-        sigma, geo_feat = h[..., 0], h[..., 1:]
-        
+        # exponential activation for sigma
+        #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
+        sigma = F.relu(h[..., 0])
+        geo_feat = h[..., 1:]
+
         # color
         d = self.encoder_dir(d)
         h = torch.cat([d, geo_feat], dim=-1)
@@ -130,7 +172,8 @@ class NeRFNetwork(nn.Module):
             h = self.color_net[l](h)
             if l != self.num_layers_color - 1:
                 h = F.relu(h, inplace=True)
-            
+        
+        # sigmoid activation for rgb
         color = torch.sigmoid(h)
 
         return sigma, color
@@ -145,20 +188,20 @@ class NeRFNetwork(nn.Module):
             if l != self.num_layers - 1:
                 h = F.relu(h, inplace=True)
 
-        sigma = h[..., 0]
+        #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
+        sigma = F.relu(h[..., 0])
 
         return sigma
 
     def run(self, rays_o, rays_d, num_steps, bound, upsample_steps):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
-        # return: pred_rgb: [B, N, 3]
+        # return: image: [B, N, 3], depth: [B, N]
 
         B, N = rays_o.shape[:2]
         device = rays_o.device
 
         # sample steps
-        near = rays_o.norm(dim=-1, keepdim=True) - bound # [B, N, 1]
-        far = near + 2 * bound
+        near, far = near_far_from_bound(rays_o, rays_d, bound, type='cube')
 
         #print(f'near = {near.min().item()} ~ {near.max().item()}, far = {far.min().item()} ~ {far.max().item()}')
 
@@ -170,17 +213,22 @@ class NeRFNetwork(nn.Module):
         sample_dist = (far - near) / num_steps
         if self.training:
             z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
+            z_vals = z_vals.clamp(near, far) # avoid out of bounds pts.
 
         # generate pts
         pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, T, 3] -> [B, N, T, 3]
+        pts = pts.clamp(-bound, bound) # must be strictly inside the bounds, else lead to nan in hashgrid encoder!
 
         #print(f'pts {pts.shape} {pts.min().item()} ~ {pts.max().item()}')
 
         #plot_pointcloud(pts.reshape(-1, 3).detach().cpu().numpy())
 
         # query SDF and RGB
-        rays_d_ = rays_d.unsqueeze(-2).expand_as(pts)
-        sigmas, rgbs = self(pts.reshape(B, -1, 3), rays_d_.reshape(B, -1, 3), bound=bound)
+        dirs = rays_d.unsqueeze(-2).expand_as(pts)
+
+        sigmas, rgbs = self(pts.reshape(B, -1, 3), dirs.reshape(B, -1, 3), bound=bound)
+
+
         rgbs = rgbs.reshape(B, N, num_steps, 3) # [B, N, T, 3]
         sigmas = sigmas.reshape(B, N, num_steps) # [B, N, T]
 
@@ -191,7 +239,7 @@ class NeRFNetwork(nn.Module):
                 deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]
                 deltas = torch.cat([deltas, 1e10 * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
-                alphas = 1 - torch.exp(-deltas * (F.relu(sigmas))) # [B, N, T]
+                alphas = 1 - torch.exp(-deltas * sigmas) # [B, N, T]
                 alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]
                 weights = alphas * torch.cumprod(alphas_shifted, dim=-1)[:, :, :-1] # [B, N, T]
 
@@ -203,8 +251,8 @@ class NeRFNetwork(nn.Module):
                 new_pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, t, 3] -> [B, N, t, 3]
 
             # only forward new points to save computation
-            new_rays_d_ = rays_d.unsqueeze(-2).expand_as(new_pts)
-            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), new_rays_d_.reshape(B, -1, 3), bound=bound)
+            new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
+            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), new_dirs.reshape(B, -1, 3), bound=bound)
             new_rgbs = new_rgbs.reshape(B, N, upsample_steps, 3) # [B, N, t, 3]
             new_sigmas = new_sigmas.reshape(B, N, upsample_steps) # [B, N, t]
 
@@ -222,7 +270,7 @@ class NeRFNetwork(nn.Module):
         deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]
         deltas = torch.cat([deltas, 1e10 * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
-        alphas = 1 - torch.exp(-deltas * (F.relu(sigmas))) # [B, N, T]
+        alphas = 1 - torch.exp(-deltas * sigmas) # [B, N, T]
         alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]
         weights = alphas * torch.cumprod(alphas_shifted, dim=-1)[:, :, :-1] # [B, N, T]
 
@@ -235,13 +283,90 @@ class NeRFNetwork(nn.Module):
 
         # calculate color
         image = torch.sum(weights.unsqueeze(-1) * rgbs, dim=-2) # [B, N, 3], in [0, 1]
-        #image = image + (1 - weights_sum).unsqueeze(-1) # white background (infinite depth)
+        image = image + (1 - weights_sum).unsqueeze(-1) # white background (infinite depth)
 
         return depth, image
+
+
+    def run_cuda(self, rays_o, rays_d, num_steps, bound, upsample_steps):
+        # rays_o, rays_d: [B, N, 3], assumes B == 1
+        # return: image: [B, N, 3], depth: [B, N]
+
+        # TODO: a better ray marching in CUDA
+
+        B, N = rays_o.shape[:2]
+
+        ### generate points (forward only)
+
+        points, rays = raymarching.generate_points(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density)
+
+        ### call network inference
+        sigmas, rgbs = self(points[:, :3], points[:, 3:6], bound=bound)
+        
+        ### accumulate rays (need backward)
+        # inputs: sigmas: [M], rgbs: [M, 3], offsets: [N+1]
+        # outputs: depth: [N], image: [N, 3]
+
+        depth, image = raymarching.accumulate_rays(sigmas, rgbs, points, rays, bound)
+
+    
+        depth = depth.reshape(B, N)
+        image = image.reshape(B, N, 3)
+
+        return depth, image
+
+    
+    def update_density_grid(self, bound, decay=0.95, chunk_size=64):
+        # call before run_cuda, prepare a coarse density grid.
+
+        if self.density_grid is None:
+            return 
+        
+        resolution = self.density_grid.shape[0]
+
+        N = chunk_size # chunk to avoid OOM
+        
+        X = torch.linspace(-bound, bound, resolution).split(N)
+        Y = torch.linspace(-bound, bound, resolution).split(N)
+        Z = torch.linspace(-bound, bound, resolution).split(N)
+
+        tmp_grid = torch.zeros_like(self.density_grid)
+        with torch.no_grad():
+            for xi, xs in enumerate(X):
+                for yi, ys in enumerate(Y):
+                    for zi, zs in enumerate(Z):
+                        lx, ly, lz = len(xs), len(ys), len(zs)
+                        xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                        pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).to(tmp_grid.device).unsqueeze(0) # [1, N, 3]
+                        density = self.density(pts, bound).reshape(lx, ly, lz).detach()
+                        tmp_grid[xi * N: xi * N + lx, yi * N: yi * N + ly, zi * N: zi * N + lz] = density
+        
+        # ema update
+        # torch.maximum(self.density_grid * decay, tmp_grid)
+
+        # smooth by maxpooling
+        #tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
+        #self.density_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
+
+        self.density_grid = tmp_grid
+
+        self.mean_density = torch.mean(self.density_grid).item()
+        self.iter_density += 1
+
+        # TMP: save mesh for debug
+        # vertices, triangles = mcubes.marching_cubes(tmp_grid.detach().cpu().numpy(), 5)
+        # vertices = vertices / (resolution - 1.0) * 2 * bound - bound
+        # mesh = trimesh.Trimesh(vertices, triangles)
+        # mesh.export(f'./tmp/{self.iter_density}.ply')
+
+        print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}, write to {self.iter_density}.ply')
+
 
     def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=256000, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
+
+        _run = self.run if not kwargs['cuda_raymarching'] else self.run_cuda
 
         B, N = rays_o.shape[:2]
         device = rays_o.device
@@ -255,7 +380,7 @@ class NeRFNetwork(nn.Module):
                 while head < N:
                     tail = min(head + max_ray_batch, N)
 
-                    depth_, image_ = self.run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, bound, upsample_steps)
+                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, bound, upsample_steps)
                     
                     depth[b:b+1, head:tail] = depth_
                     image[b:b+1, head:tail] = image_
@@ -263,7 +388,7 @@ class NeRFNetwork(nn.Module):
                     head += max_ray_batch
 
         else:
-            depth, image = self.run(rays_o, rays_d, num_steps, bound, upsample_steps)
+            depth, image = _run(rays_o, rays_d, num_steps, bound, upsample_steps)
 
         results = {}
         results['depth'] = depth

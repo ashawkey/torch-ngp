@@ -14,6 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('path', type=str)
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--fp16', action='store_true')
 
     opt = parser.parse_args()
 
@@ -40,7 +41,7 @@ if __name__ == '__main__':
 
     scheduler = lambda optimizer: optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
-    trainer = Trainer('ngp', model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=True, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
+    trainer = Trainer('ngp', model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
 
     trainer.train(train_loader, valid_loader, 20)
 

@@ -11,6 +11,7 @@ if __name__ == '__main__':
     parser.add_argument('path', type=str)
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--fp16', action='store_true')
 
     opt = parser.parse_args()
 
@@ -21,7 +22,7 @@ if __name__ == '__main__':
 
     print(model)
 
-    trainer = Trainer('ngp', model, workspace=opt.workspace, use_checkpoint='latest', eval_interval=1)
+    trainer = Trainer('ngp', model, workspace=opt.workspace, fp16=opt.fp16, use_checkpoint='best', eval_interval=1)
 
     trainer.save_mesh(os.path.join(opt.workspace, 'results', 'output.ply'), 1024)
 
