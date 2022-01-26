@@ -61,6 +61,6 @@ if __name__ == '__main__':
     trainer.train(train_loader, valid_loader, 200)
 
     # test dataset
-    # test_dataset = NeRFDataset(opt.path, 'test', downscale=4, radius=opt.radius)
-    # test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
-    # trainer.test(test_loader)
+    test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+    trainer.test(test_loader)

@@ -160,8 +160,6 @@ class NeRFNetwork(nn.Module):
             if l != self.num_layers - 1:
                 h = F.relu(h, inplace=True)
 
-        # exponential activation for sigma
-        #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
         sigma = F.relu(h[..., 0])
         geo_feat = h[..., 1:]
 

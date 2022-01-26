@@ -120,7 +120,7 @@ class HashEncoder(nn.Module):
         #print('inputs', inputs.shape, inputs.dtype, inputs.min().item(), inputs.max().item())
 
         prefix_shape = list(inputs.shape[:-1])
-        inputs = inputs.view(-1, self.input_dim) # this consumes most time ?????
+        inputs = inputs.view(-1, self.input_dim)
 
         outputs = hash_encode(inputs, self.embeddings, self.offsets, self.base_resolution, calc_grad_inputs)
         outputs = outputs.view(prefix_shape + [self.output_dim])
