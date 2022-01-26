@@ -6,7 +6,7 @@ from nerf.utils import *
 
 import argparse
 
-torch.autograd.set_detect_anomaly(True)
+#torch.autograd.set_detect_anomaly(True)
 
 if __name__ == '__main__':
 

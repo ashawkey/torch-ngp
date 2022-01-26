@@ -1,4 +1,5 @@
 torch-ema
+ninja
 trimesh
 opencv-python
 tensorboardX
