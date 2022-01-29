@@ -84,10 +84,10 @@ class NeRFNetwork(nn.Module):
     def __init__(self,
                  encoding="hashgrid",
                  encoding_dir="sphere_harmonics",
-                 num_layers=3,
+                 num_layers=2,
                  hidden_dim=64,
                  geo_feat_dim=15,
-                 num_layers_color=4,
+                 num_layers_color=3,
                  hidden_dim_color=64,
                  density_grid_size=-1, # density grid size
                  ):

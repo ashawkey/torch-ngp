@@ -81,6 +81,9 @@ class HashEncoder(nn.Module):
         self.base_resolution = base_resolution
         self.output_dim = num_levels * level_dim
 
+        if level_dim % 2 != 0:
+            print('[WARN] detected HashGrid level_dim % 2 != 0, which will cause very slow backward is also enabled fp16! (maybe fix later)')
+
         # allocate parameters
         self.offsets = []
         offset = 0

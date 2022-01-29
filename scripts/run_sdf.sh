@@ -1,1 +1,1 @@
-OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=3 python train_sdf.py data/armadillo.obj --workspace trial_sdf --fp16
+OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=3 python train_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff

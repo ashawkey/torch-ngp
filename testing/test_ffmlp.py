@@ -115,10 +115,7 @@ starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_t
 
 starter.record()
 y2 = net1(x2)
-ender.record()
-torch.cuda.synchronize()
-curr_time = starter.elapsed_time(ender)
-print(f'time1 (fp32 train) = {curr_time}')
+ender.record(); torch.cuda.synchronize(); curr_time = starter.elapsed_time(ender); print(f'time1 (fp32 train) = {curr_time}')
 
 starter.record()
 y2.sum().backward()

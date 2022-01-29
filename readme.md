@@ -16,17 +16,18 @@ SDF | NeRF
 * HashGrid Encoder
     - [x] basic pytorch CUDA extension
     - [x] fp16 support 
-    - [ ] improve performance (currently the slowest part in nerf inference)
+    - [x] improve performance
 * Experiments
     - SDF
         - [x] baseline
         - [ ] better SDF calculation (especially for non-watertight meshes)
     - NeRF
         - [x] baseline (although much slower)
-        - [ ] fp16 with GradScaler enabled leads to slower backward in training...
         - [ ] ray marching in CUDA.
 
 # News
+* 1.30: 
+    * fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
 * 1.29: 
     * finished an experimental binding of fully-fused MLP.
     * replace SHEncoder with a CUDA implementation.

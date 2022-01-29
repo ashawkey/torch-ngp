@@ -19,8 +19,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps', type=int, default=256)
     parser.add_argument('--upsample_steps', type=int, default=256)
     parser.add_argument('--max_ray_batch', type=int, default=4096)
-    parser.add_argument('--fp16', action='store_true')
-    parser.add_argument('--ff', action='store_true')
+    parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
+    parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
     
     parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-size, size)")
@@ -33,10 +33,8 @@ if __name__ == '__main__':
 
     if opt.ff:
         assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        use_grad_scaler = opt.fp16 # pytorch amp gradscaler lead to 10x slower backward for fp16, why?
         Network = NeRFNetwork_FF
     else:
-        use_grad_scaler = opt.fp16 # pytorch amp gradscaler lead to 10x slower backward for fp16, why?
         Network = NeRFNetwork
 
     seed_everything(opt.seed)
@@ -66,12 +64,11 @@ if __name__ == '__main__':
 
     scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150], gamma=0.33)
 
-    trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, use_grad_scaler=use_grad_scaler, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
+    trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=1)
 
     trainer.train(train_loader, valid_loader, 200)
 
     # test dataset
     test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=10)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
-
     trainer.test(test_loader)

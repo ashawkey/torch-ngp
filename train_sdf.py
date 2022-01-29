@@ -15,8 +15,8 @@ if __name__ == '__main__':
     parser.add_argument('path', type=str)
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--fp16', action='store_true')
-    parser.add_argument('--ff', action='store_true')
+    parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
+    parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
 
     opt = parser.parse_args()
 

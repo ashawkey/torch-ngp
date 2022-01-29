@@ -21,6 +21,7 @@
 
 
 // requires CUDA >= 10 and ARCH >= 70
+// this is so damnly slow...
 static inline  __device__ at::Half atomicAdd(at::Half *address, at::Half val) {
   return atomicAdd(reinterpret_cast<__half*>(address), val);
 }
@@ -233,9 +234,20 @@ __global__ void kernel_grid_backward(
 
         uint32_t index = get_grid_index<D, C>(ch, hashmap_size, resolution, pos_grid_local);
 
-        #pragma unroll
-        for (uint32_t c = 0; c < N_C; c++) {
-            atomicAdd(&grad_grid[index + c], w * grad[c]);
+
+        // atomicAdd for __half is slow (especially for large values), so we use __half2 if N_C % 2 == 0
+        // TODO: use float which is better than __half, if N_C % 2 != 0
+        if (N_C % 2 == 0) {
+            #pragma unroll
+            for (uint32_t c = 0; c < N_C; c += 2) {
+                __half2 v = {(__half)((float)grad[c] * w), (__half)((float)grad[c + 1] * w)};
+                atomicAdd((__half2*)&grad_grid[index + c], v);
+            }
+        } else {
+            #pragma unroll
+            for (uint32_t c = 0; c < N_C; c++) {
+                atomicAdd(&grad_grid[index + c], w * grad[c]);
+            }
         }
     }    
 }

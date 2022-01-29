@@ -143,7 +143,6 @@ class Trainer(object):
                  device=None, # device to use, usually setting to None is OK. (auto choose device)
                  mute=False, # whether to mute all print
                  fp16=False, # amp optimize level
-                 use_grad_scaler=False, # use amp grad scaler
                  eval_interval=1, # eval once every $ epoch
                  max_keep_ckpt=2, # max num of saved ckpts in disk
                  workspace='workspace', # workspace to save logs & ckpts
@@ -163,7 +162,6 @@ class Trainer(object):
         self.workspace = workspace
         self.ema_decay = ema_decay
         self.fp16 = fp16
-        self.use_grad_scaler = use_grad_scaler and fp16
         self.best_mode = best_mode
         self.use_loss_as_metric = use_loss_as_metric
         self.max_keep_ckpt = max_keep_ckpt
@@ -200,7 +198,7 @@ class Trainer(object):
         else:
             self.ema = None
 
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_grad_scaler)
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
 
         # variable init
         self.epoch = 1
@@ -466,9 +464,11 @@ class Trainer(object):
                 #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
             #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
+         
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
+        
             #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
             
             if self.ema is not None:

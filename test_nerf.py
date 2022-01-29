@@ -1,6 +1,7 @@
 import torch
 
 from nerf.network import NeRFNetwork
+from nerf.network_ff import NeRFNetwork as NeRFNetwork_FF
 from nerf.provider import NeRFDataset
 from nerf.utils import *
 
@@ -16,10 +17,11 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps', type=int, default=256)
     parser.add_argument('--upsample_steps', type=int, default=256)
     parser.add_argument('--max_ray_batch', type=int, default=4096) # lower if OOM
-    parser.add_argument('--fp16', action='store_true')
+    parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
+    parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
     
     parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
-    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in sphere(0, size)")
+    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-size, size)")
 
     parser.add_argument('--cuda_raymarching', action='store_true', help="use CUDA raymarching instead of pytorch (unstable now)")
 
@@ -27,9 +29,14 @@ if __name__ == '__main__':
 
     print(opt)
 
+    if opt.ff:
+        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
+        Network = NeRFNetwork_FF
+    else:
+        Network = NeRFNetwork
     seed_everything(opt.seed)
 
-    model = NeRFNetwork(
+    model = Network(
         encoding="hashgrid", encoding_dir="sphere_harmonics", 
         num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
         density_grid_size=128 if opt.cuda_raymarching else -1,
