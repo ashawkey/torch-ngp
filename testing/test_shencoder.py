@@ -2,7 +2,7 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
-from hashencoder import SHEncoder
+from shencoder import SHEncoder
 
 
 class SHEncoder_torch(nn.Module):
@@ -97,34 +97,51 @@ enc2 = SHEncoder(degree=degree).cuda()
 
 x1 = torch.rand(B, 3).cuda() * 2 - 1 # in [-1, 1]
 x1 = x1 / (torch.norm(x1, dim=-1, keepdim=True) + 1e-8)
-#x1.requires_grad_(True)
+x1.requires_grad_(True)
 
 x2 = x1.detach().clone()
-#x2.requires_grad_(True)
+x2.requires_grad_(True)
 
 print(f"=== x ===")
 print(x1)
 
-_t = time.time()
-y1 = enc1(x1)
-print(f"[time1] {time.time() - _t:.6f}")
+starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
-_t = time.time()
-y2 = enc2(x2, calc_grad_inputs=True)
-print(f"[time2] {time.time() - _t:.6f}") # even slower...??? what am I doing...
+with torch.no_grad():
+    with torch.cuda.amp.autocast(enabled=True):
 
-print(f"=== y ===")
-print(y1)
-print(y2)
+        starter.record()
+        y1 = enc1(x1)
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender)
+        print(f'time 1 = {curr_time}')
 
-# _t = time.time()
-# y1.sum().backward()
-# print(f"[back time1] {time.time() - _t:.6f}")
+        starter.record()
+        y2 = enc2(x2)
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender)
+        print(f'time 2 = {curr_time}')
 
-# _t = time.time()
-# y2.sum().backward()
-# print(f"[back time2] {time.time() - _t:.6f}")
+        print(f"=== y ===")
+        print(y1)
+        print(y2)
 
-# print(f"=== grad x ===")
-# print(x1.grad)
-# print(x2.grad)
+        # starter.record()
+        # y1.sum().backward()
+        # ender.record()
+        # torch.cuda.synchronize()
+        # curr_time = starter.elapsed_time(ender)
+        # print(f'time 1 (back) = {curr_time}')
+
+        # starter.record()
+        # y2.sum().backward()
+        # ender.record()
+        # torch.cuda.synchronize()
+        # curr_time = starter.elapsed_time(ender)
+        # print(f'time 2 (back) = {curr_time}')
+
+        # print(f"=== grad x ===")
+        # print(x1.grad)
+        # print(x2.grad)

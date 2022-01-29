@@ -203,9 +203,9 @@ __global__ void kernel_generate_points(
         // if occpuied, advance a small step, and write to output
         if (density > density_thresh) {
             // write step
-            points[0] = x;
-            points[1] = y;
-            points[2] = z;
+            points[0] = fmaxf(fminf(x, bound), -bound); // clamp again, to make sure in range...
+            points[1] = fmaxf(fminf(y, bound), -bound);
+            points[2] = fmaxf(fminf(z, bound), -bound);
             points[3] = dx;
             points[4] = dy;
             points[5] = dz;

@@ -143,6 +143,7 @@ class Trainer(object):
                  device=None, # device to use, usually setting to None is OK. (auto choose device)
                  mute=False, # whether to mute all print
                  fp16=False, # amp optimize level
+                 use_grad_scaler=False, # use amp grad scaler
                  eval_interval=1, # eval once every $ epoch
                  max_keep_ckpt=2, # max num of saved ckpts in disk
                  workspace='workspace', # workspace to save logs & ckpts
@@ -162,6 +163,7 @@ class Trainer(object):
         self.workspace = workspace
         self.ema_decay = ema_decay
         self.fp16 = fp16
+        self.use_grad_scaler = use_grad_scaler and fp16
         self.best_mode = best_mode
         self.use_loss_as_metric = use_loss_as_metric
         self.max_keep_ckpt = max_keep_ckpt
@@ -198,7 +200,7 @@ class Trainer(object):
         else:
             self.ema = None
 
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_grad_scaler)
 
         # variable init
         self.epoch = 1
@@ -294,8 +296,7 @@ class Trainer(object):
         # sample rays 
         B, H, W, C = images.shape
         rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
-        
-        #with torch.autograd.profiler.emit_nvtx():
+
         outputs = self.model.render(rays_o, rays_d, staged=True, **self.conf)
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, C)
@@ -409,19 +410,19 @@ class Trainer(object):
         if isinstance(data, list):
             for i, v in enumerate(data):
                 if isinstance(v, np.ndarray):
-                    data[i] = torch.from_numpy(v).to(self.device)
+                    data[i] = torch.from_numpy(v).to(self.device, non_blocking=True)
                 if torch.is_tensor(v):
-                    data[i] = v.to(self.device)
+                    data[i] = v.to(self.device, non_blocking=True)
         elif isinstance(data, dict):
             for k, v in data.items():
                 if isinstance(v, np.ndarray):
-                    data[k] = torch.from_numpy(v).to(self.device)
+                    data[k] = torch.from_numpy(v).to(self.device, non_blocking=True)
                 if torch.is_tensor(v):
-                    data[k] = v.to(self.device)
+                    data[k] = v.to(self.device, non_blocking=True)
         elif isinstance(data, np.ndarray):
-            data = torch.from_numpy(data).to(self.device)
+            data = torch.from_numpy(data).to(self.device, non_blocking=True)
         else: # is_tensor, or other similar objects that has `to`
-            data = data.to(self.device)
+            data = data.to(self.device, non_blocking=True)
 
         return data
 
@@ -459,10 +460,16 @@ class Trainer(object):
             self.optimizer.zero_grad()
 
             with torch.cuda.amp.autocast(enabled=self.fp16):
+
+                #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
                 preds, truths, loss = self.train_step(data)
+                #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
+
+            #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
+            #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
             
             if self.ema is not None:
                 self.ema.update()
@@ -604,6 +611,7 @@ class Trainer(object):
         if full:
             state['optimizer'] = self.optimizer.state_dict()
             state['lr_scheduler'] = self.lr_scheduler.state_dict()
+            state['scaler'] = self.scaler.state_dict()
             if self.ema is not None:
                 state['ema'] = self.ema.state_dict()
         
@@ -682,3 +690,10 @@ class Trainer(object):
                 self.log("[INFO] loaded scheduler.")
             except:
                 self.log("[WARN] Failed to load scheduler, use default.")
+        
+        if 'scaler' in checkpoint_dict:
+            try:
+                self.scaler.load_state_dict(checkpoint_dict['scaler'])
+                self.log("[INFO] loaded scaler.")
+            except:
+                self.log("[WARN] Failed to load scaler, use default.")

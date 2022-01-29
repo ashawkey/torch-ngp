@@ -29,9 +29,9 @@ class _hash_encode(Function):
         outputs = torch.zeros(B,  L * C, device=inputs.device, dtype=inputs.dtype)
 
         if calc_grad_inputs:
-            dy_dx = torch.zeros(B, L * D * C).to(inputs.device, dtype=inputs.dtype)
+            dy_dx = torch.zeros(B, L * D * C, device=inputs.device, dtype=inputs.dtype)
         else:
-            dy_dx = torch.zeros(1).to(inputs.device, dtype=inputs.dtype)
+            dy_dx = torch.zeros(1, device=inputs.device, dtype=inputs.dtype)
 
         _backend.hash_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, H, calc_grad_inputs, dy_dx)
 
@@ -57,7 +57,7 @@ class _hash_encode(Function):
         if calc_grad_inputs:
             grad_inputs = torch.zeros_like(inputs)
         else:
-            grad_inputs = torch.zeros(1).to(inputs.device, dtype=inputs.dtype)
+            grad_inputs = torch.zeros(1, device=inputs.device, dtype=inputs.dtype)
 
         _backend.hash_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, H, calc_grad_inputs, dy_dx, grad_inputs)
 
@@ -108,7 +108,7 @@ class HashEncoder(nn.Module):
     def __repr__(self):
         return f"HashEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} H={self.base_resolution} params={self.embeddings.shape}"
     
-    def forward(self, inputs, size=1, calc_grad_inputs=False):
+    def forward(self, inputs, size=1):
         # inputs: [..., input_dim], normalized real world positions in [-size, size]
         # return: [..., num_levels * level_dim]
 
@@ -122,7 +122,7 @@ class HashEncoder(nn.Module):
         prefix_shape = list(inputs.shape[:-1])
         inputs = inputs.view(-1, self.input_dim)
 
-        outputs = hash_encode(inputs, self.embeddings, self.offsets, self.base_resolution, calc_grad_inputs)
+        outputs = hash_encode(inputs, self.embeddings, self.offsets, self.base_resolution, inputs.requires_grad)
         outputs = outputs.view(prefix_shape + [self.output_dim])
 
         #print('outputs', outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())

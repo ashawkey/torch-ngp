@@ -19,6 +19,7 @@
 #define CHECK_IS_INT(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Int, #x " must be an int tensor")
 #define CHECK_IS_FLOATING(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Float || x.scalar_type() == at::ScalarType::Half || x.scalar_type() == at::ScalarType::Double, #x " must be a floating tensor")
 
+
 // requires CUDA >= 10 and ARCH >= 70
 static inline  __device__ at::Half atomicAdd(at::Half *address, at::Half val) {
   return atomicAdd(reinterpret_cast<__half*>(address), val);
@@ -26,7 +27,7 @@ static inline  __device__ at::Half atomicAdd(at::Half *address, at::Half val) {
 
 
 template <typename T>
-__host__ __device__ T div_round_up(T val, T divisor) {
+static inline __host__ __device__ T div_round_up(T val, T divisor) {
 	return (val + divisor - 1) / divisor;
 }
 
@@ -113,7 +114,7 @@ __global__ void kernel_grid(
     // interpolate
     #pragma unroll
     for (uint32_t idx = 0; idx < (1 << D); idx++) {
-        scalar_t w = 1;
+        float w = 1;
         uint32_t pos_grid_local[D];
 
         #pragma unroll
@@ -147,7 +148,7 @@ __global__ void kernel_grid(
 
             #pragma unroll
             for (uint32_t idx = 0; idx < (1 << (D - 1)); idx++) {
-                scalar_t w = scale;
+                float w = scale;
                 uint32_t pos_grid_local[D];
 
                 #pragma unroll
@@ -216,7 +217,7 @@ __global__ void kernel_grid_backward(
     // interpolate
     #pragma unroll
     for (uint32_t idx = 0; idx < (1 << D); idx++) {
-        scalar_t w = 1;
+        float w = 1;
         uint32_t pos_grid_local[D];
 
         #pragma unroll

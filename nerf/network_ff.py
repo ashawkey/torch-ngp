@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from encoding import get_encoder
+from ffmlp import FFMLP
 
 import raymarching
 
@@ -84,10 +85,10 @@ class NeRFNetwork(nn.Module):
     def __init__(self,
                  encoding="hashgrid",
                  encoding_dir="sphere_harmonics",
-                 num_layers=3,
+                 num_layers=2,
                  hidden_dim=64,
                  geo_feat_dim=15,
-                 num_layers_color=4,
+                 num_layers_color=3,
                  hidden_dim_color=64,
                  density_grid_size=-1, # density grid size
                  ):
@@ -99,43 +100,25 @@ class NeRFNetwork(nn.Module):
         self.geo_feat_dim = geo_feat_dim
         self.encoder, self.in_dim = get_encoder(encoding)
 
-        sigma_net = []
-        for l in range(num_layers):
-            if l == 0:
-                in_dim = self.in_dim
-            else:
-                in_dim = hidden_dim
-            
-            if l == num_layers - 1:
-                out_dim = 1 + self.geo_feat_dim # 1 sigma + 15 SH features for color
-            else:
-                out_dim = hidden_dim
-            
-            sigma_net.append(nn.Linear(in_dim, out_dim, bias=False))
-
-        self.sigma_net = nn.ModuleList(sigma_net)
+        self.sigma_net = FFMLP(
+            input_dim=self.in_dim, 
+            output_dim=1 + self.geo_feat_dim,
+            hidden_dim=self.hidden_dim,
+            num_layers=self.num_layers,
+        )
 
         # color network
         self.num_layers_color = num_layers_color        
         self.hidden_dim_color = hidden_dim_color
         self.encoder_dir, self.in_dim_color = get_encoder(encoding_dir)
-        self.in_dim_color += self.geo_feat_dim
+        self.in_dim_color += self.geo_feat_dim + 1 # a manual fixing to make it 32, as done in nerf_network.h#178
         
-        color_net =  []
-        for l in range(num_layers_color):
-            if l == 0:
-                in_dim = self.in_dim_color
-            else:
-                in_dim = hidden_dim
-            
-            if l == num_layers_color - 1:
-                out_dim = 3 # 3 rgb
-            else:
-                out_dim = hidden_dim
-            
-            color_net.append(nn.Linear(in_dim, out_dim, bias=False))
-
-        self.color_net = nn.ModuleList(color_net)
+        self.color_net = FFMLP(
+            input_dim=self.in_dim_color, 
+            output_dim=3,
+            hidden_dim=self.hidden_dim_color,
+            num_layers=self.num_layers_color,
+        )
 
         # density grid
         if density_grid_size > 0:
@@ -151,43 +134,45 @@ class NeRFNetwork(nn.Module):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
 
+        B, N = x.shape[:2]
+        x = x.reshape(B*N, -1)
+        d = d.reshape(B*N, -1)
+
         # sigma
         x = self.encoder(x, size=bound)
-
-        h = x
-        for l in range(self.num_layers):
-            h = self.sigma_net[l](h)
-            if l != self.num_layers - 1:
-                h = F.relu(h, inplace=True)
+        h = self.sigma_net(x)
 
         sigma = F.relu(h[..., 0])
         geo_feat = h[..., 1:]
 
-        # color
+        # color        
         d = self.encoder_dir(d)
-        h = torch.cat([d, geo_feat], dim=-1)
-        for l in range(self.num_layers_color):
-            h = self.color_net[l](h)
-            if l != self.num_layers_color - 1:
-                h = F.relu(h, inplace=True)
+
+        p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
+        h = torch.cat([d, geo_feat, p], dim=-1)
+        h = self.color_net(h)
         
         # sigmoid activation for rgb
         color = torch.sigmoid(h)
+    
+        sigma = sigma.reshape(B, N)
+        color = color.reshape(B, N, -1)
 
         return sigma, color
 
     def density(self, x, bound):
         # x: [B, N, 3], in [-bound, bound]
 
+        B, N = x.shape[:2]
+        x = x.reshape(B*N, -1)
+
         x = self.encoder(x, size=bound)
-        h = x
-        for l in range(self.num_layers):
-            h = self.sigma_net[l](h)
-            if l != self.num_layers - 1:
-                h = F.relu(h, inplace=True)
+        h = self.sigma_net(x)
 
         #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
         sigma = F.relu(h[..., 0])
+
+        sigma = sigma.reshape(B, N)
 
         return sigma
 
