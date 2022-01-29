@@ -127,7 +127,7 @@ class FFMLP(nn.Module):
         _backend.allocate_splitk(self.num_layers + 1)
 
         # register destructor
-        atexit.register(self.cleanup)
+        #atexit.register(self.cleanup)
 
 
     def cleanup(self):

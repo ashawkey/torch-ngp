@@ -196,7 +196,7 @@ class NeRFNetwork(nn.Module):
         sample_dist = (far - near) / num_steps
         if self.training:
             z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
-            z_vals = z_vals.clamp(near, far) # avoid out of bounds pts.
+            #z_vals = z_vals.clamp(near, far) # avoid out of bounds pts.
 
         # generate pts
         pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, T, 3] -> [B, N, T, 3]
