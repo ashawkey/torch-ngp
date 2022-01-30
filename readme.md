@@ -44,10 +44,17 @@ Tested on Ubuntu with torch 1.10 & CUDA 11.3
 We use the same data format as instant-ngp, e.g., [armadillo](https://github.com/NVlabs/instant-ngp/blob/master/data/sdf/armadillo.obj) and [fox](https://github.com/NVlabs/instant-ngp/tree/master/data/nerf/fox). 
 Please download and put them under `./data`.
 
+First time running will take some time to compile the CUDA extensions.
+
 ```bash
 # SDF experiment
 bash scripts/run_sdf.sh
 
 # NeRF experiment
 bash scripts/run_nerf.sh
+
+python train_nerf.py data/fox --workspace trial_nerf # fp32 mode
+python train_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
+python train_nerf.py data/fox --workspace trial_nerf --fp16 --ff # (experimental) fp16 mode + fully-fused MLP
+
 ```
