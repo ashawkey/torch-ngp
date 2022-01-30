@@ -163,12 +163,8 @@ class NeRFNetwork(nn.Module):
     def density(self, x, bound):
         # x: [B, N, 3], in [-bound, bound]
 
-        print(x.shape)
-
         B, N = x.shape[:2]
         x = x.reshape(B*N, -1)
-
-        print(x.shape)
 
         x = self.encoder(x, size=bound)
         h = self.sigma_net(x)
