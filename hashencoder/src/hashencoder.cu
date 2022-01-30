@@ -21,7 +21,7 @@
 
 
 // requires CUDA >= 10 and ARCH >= 70
-// this is so damnly slow...
+// this is very slow compared to float or __half2, do not use!
 static inline  __device__ at::Half atomicAdd(at::Half *address, at::Half val) {
   return atomicAdd(reinterpret_cast<__half*>(address), val);
 }
@@ -79,10 +79,10 @@ __global__ void kernel_grid(
     const scalar_t * __restrict__ inputs, 
     const scalar_t * __restrict__ grid, 
     const int * __restrict__ offsets, 
-    scalar_t * outputs, 
+    scalar_t * __restrict__ outputs, 
     uint32_t B, uint32_t L, uint32_t H,
     const bool calc_grad_inputs, 
-    scalar_t * dy_dx
+    scalar_t * __restrict__ dy_dx
 ) {
     const uint32_t b = blockIdx.x * blockDim.x + threadIdx.x;
     
@@ -113,6 +113,8 @@ __global__ void kernel_grid(
     //printf("[b=%d, l=%d] pos=(%f, %f)+(%d, %d)\n", b, level, pos[0], pos[1], pos_grid[0], pos_grid[1]);
 
     // interpolate
+    float results[C] = {0}; // temp results in register
+
     #pragma unroll
     for (uint32_t idx = 0; idx < (1 << D); idx++) {
         float w = 1;
@@ -131,13 +133,20 @@ __global__ void kernel_grid(
 
         uint32_t index = get_grid_index<D, C>(0, hashmap_size, resolution, pos_grid_local);
 
+        // writing to register (fast)
         #pragma unroll
         for (uint32_t ch = 0; ch < C; ch++) {
-            outputs[ch] += w * grid[index + ch];
+            results[ch] += w * grid[index + ch];
         }
 
         //printf("[b=%d, l=%d] int %d, idx %d, w %f, val %f\n", b, level, idx, index, w, grid[index]);
     }    
+
+    // writing to global memory (slow)
+    #pragma unroll
+    for (uint32_t ch = 0; ch < C; ch++) {
+        outputs[ch] = results[ch]; 
+    }
 
     // prepare dy_dx for calc_grad_inputs
     if (calc_grad_inputs) {
@@ -146,6 +155,8 @@ __global__ void kernel_grid(
 
         #pragma unroll
         for (uint32_t gd = 0; gd < D; gd++) {
+
+            float results_grad[C] = {0}; // temp
 
             #pragma unroll
             for (uint32_t idx = 0; idx < (1 << (D - 1)); idx++) {
@@ -172,8 +183,13 @@ __global__ void kernel_grid(
 
                 #pragma unroll
                 for (uint32_t ch = 0; ch < C; ch++) {
-                    dy_dx[gd * C + ch] += w * (grid[index_right + ch] - grid[index_left + ch]);
+                    results_grad[ch] += w * (grid[index_right + ch] - grid[index_left + ch]);
                 }
+            }
+
+            #pragma unroll
+            for (uint32_t ch = 0; ch < C; ch++) {
+                dy_dx[gd * C + ch] = results_grad[ch];
             }
         }
     }
@@ -186,7 +202,7 @@ __global__ void kernel_grid_backward(
     const scalar_t * __restrict__ inputs, 
     const scalar_t * __restrict__ grid, 
     const int * __restrict__ offsets, 
-    scalar_t * grad_grid, 
+    scalar_t * __restrict__ grad_grid, 
     uint32_t B, uint32_t L, uint32_t H
 ) {
     const uint32_t b = (blockIdx.x * blockDim.x + threadIdx.x) * N_C / C;
@@ -234,13 +250,13 @@ __global__ void kernel_grid_backward(
 
         uint32_t index = get_grid_index<D, C>(ch, hashmap_size, resolution, pos_grid_local);
 
-
         // atomicAdd for __half is slow (especially for large values), so we use __half2 if N_C % 2 == 0
         // TODO: use float which is better than __half, if N_C % 2 != 0
         if (N_C % 2 == 0) {
             #pragma unroll
             for (uint32_t c = 0; c < N_C; c += 2) {
-                __half2 v = {(__half)((float)grad[c] * w), (__half)((float)grad[c + 1] * w)};
+                // process two __half at once (by interpreting as a __half2)
+                __half2 v = {(__half)(grad[c] * w), (__half)(grad[c + 1] * w)};
                 atomicAdd((__half2*)&grad_grid[index + c], v);
             }
         } else {
@@ -257,7 +273,7 @@ template <typename scalar_t, uint32_t D, uint32_t C>
 __global__ void kernel_input_backward(
     const scalar_t * __restrict__ grad,
     const scalar_t * __restrict__ dy_dx,  
-    scalar_t * grad_inputs, 
+    scalar_t * __restrict__ grad_inputs, 
     uint32_t B, uint32_t L
 ) {
     const uint32_t t = threadIdx.x + blockIdx.x * blockDim.x;

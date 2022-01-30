@@ -39,7 +39,7 @@ if __name__ == '__main__':
     model = Network(
         encoding="hashgrid", encoding_dir="sphere_harmonics", 
         num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
-        density_grid_size=128 if opt.cuda_raymarching else -1,
+        density_grid_size=512 if opt.cuda_raymarching else -1,
     )
 
     print(model)
@@ -50,6 +50,9 @@ if __name__ == '__main__':
     #trainer.save_mesh()
 
     # render images on test dataset
-    test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius)
+    test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=1)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
-    trainer.test(test_loader)
+
+    with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA]) as p:
+        trainer.test(test_loader)
+    print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))

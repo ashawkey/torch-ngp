@@ -16,7 +16,7 @@ SDF | NeRF
 * HashGrid Encoder
     - [x] basic pytorch CUDA extension
     - [x] fp16 support 
-    - [x] improve performance
+    - [ ] improve performance
 * Experiments
     - SDF
         - [x] baseline

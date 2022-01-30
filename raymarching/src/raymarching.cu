@@ -21,7 +21,7 @@
 #define CHECK_IS_FLOATING(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Float || x.scalar_type() == at::ScalarType::Half || x.scalar_type() == at::ScalarType::Double, #x " must be a floating tensor")
 
 
-inline constexpr __device__ float DENSITY_THRESH() { return 10.0f; }
+inline constexpr __device__ float DENSITY_THRESH() { return 0.1f; }
 
 
 template <typename T>
@@ -94,7 +94,7 @@ __global__ void kernel_generate_points(
 
     // if iter_density too low (thus grid is unreliable), only generate coarse points.
     //if (iter_density < 50) {
-    if (false) {
+    if (true) {
 
         uint32_t num_steps = H - 1;
 
@@ -175,8 +175,6 @@ __global__ void kernel_generate_points(
         }
     }
 
-
-
     //printf("[n=%d] num_steps=%d\n", n, num_steps);
     //printf("[n=%d] num_steps=%d, pc=%d, rc=%d\n", n, num_steps, counter[0], counter[1]);
 
@@ -186,15 +184,15 @@ __global__ void kernel_generate_points(
 
     //printf("[n=%d] num_steps=%d, point_index=%d, ray_index=%d\n", n, num_steps, point_index, ray_index);
 
-    if (num_steps == 0) return;
-    if (point_index + num_steps > M) return;
-
-    points += point_index * 7;
-
     // write rays
     rays[ray_index * 3] = n;
     rays[ray_index * 3 + 1] = point_index;
     rays[ray_index * 3 + 2] = num_steps;
+
+    if (num_steps == 0) return;
+    if (point_index + num_steps > M) return;
+
+    points += point_index * 7;
 
     t = t0;
     float last_t = t;

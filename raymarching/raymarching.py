@@ -36,7 +36,7 @@ class _generate_points(Function):
         m = counter[0].item()
         points = points[:m]
 
-        print(f"generated points count m = {m} << {M}")
+        #print(f"generated points count m = {m} << {M}")
 
         return points, rays
 

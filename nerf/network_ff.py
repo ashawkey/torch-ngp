@@ -134,9 +134,9 @@ class NeRFNetwork(nn.Module):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
 
-        B, N = x.shape[:2]
-        x = x.reshape(B*N, -1)
-        d = d.reshape(B*N, -1)
+        prefix = x.shape[:-1]
+        x = x.reshape(-1, 3)
+        d = d.reshape(-1, 3)
 
         # sigma
         x = self.encoder(x, size=bound)
@@ -155,16 +155,16 @@ class NeRFNetwork(nn.Module):
         # sigmoid activation for rgb
         color = torch.sigmoid(h)
     
-        sigma = sigma.reshape(B, N)
-        color = color.reshape(B, N, -1)
+        sigma = sigma.reshape(*prefix)
+        color = color.reshape(*prefix, -1)
 
         return sigma, color
 
     def density(self, x, bound):
         # x: [B, N, 3], in [-bound, bound]
 
-        B, N = x.shape[:2]
-        x = x.reshape(B*N, -1)
+        prefix = x.shape[:-1]
+        x = x.reshape(-1, 3)
 
         x = self.encoder(x, size=bound)
         h = self.sigma_net(x)
@@ -172,7 +172,7 @@ class NeRFNetwork(nn.Module):
         #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
         sigma = F.relu(h[..., 0])
 
-        sigma = sigma.reshape(B, N)
+        sigma = sigma.reshape(*prefix)
 
         return sigma
 
@@ -275,31 +275,37 @@ class NeRFNetwork(nn.Module):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: image: [B, N, 3], depth: [B, N]
 
-        # TODO: a better ray marching in CUDA
-
         B, N = rays_o.shape[:2]
 
         ### generate points (forward only)
-
         points, rays = raymarching.generate_points(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density)
 
         ### call network inference
+        # manual pad for ffmlp
+        n = points.shape[0]
+        pad_n = 128 - (n % 128)
+        if pad_n > 0:
+            points = torch.cat([points, torch.zeros(pad_n, points.shape[1], device=points.device, dtype=points.dtype)], dim=0)
+
         sigmas, rgbs = self(points[:, :3], points[:, 3:6], bound=bound)
+
+        if pad_n > 0:
+            sigmas = sigmas[:n]
+            rgbs = rgbs[:n]
+
         
         ### accumulate rays (need backward)
         # inputs: sigmas: [M], rgbs: [M, 3], offsets: [N+1]
         # outputs: depth: [N], image: [N, 3]
-
         depth, image = raymarching.accumulate_rays(sigmas, rgbs, points, rays, bound)
 
-    
         depth = depth.reshape(B, N)
         image = image.reshape(B, N, 3)
 
         return depth, image
 
     
-    def update_density_grid(self, bound, decay=0.95, chunk_size=1):
+    def update_density_grid(self, bound, decay=0.95, split_size=128):
         # call before run_cuda, prepare a coarse density grid.
 
         if self.density_grid is None:
@@ -307,33 +313,36 @@ class NeRFNetwork(nn.Module):
         
         resolution = self.density_grid.shape[0]
 
-        N = chunk_size # chunk to avoid OOM
+        N = split_size # chunk to avoid OOM
         
         X = torch.linspace(-bound, bound, resolution).split(N)
         Y = torch.linspace(-bound, bound, resolution).split(N)
         Z = torch.linspace(-bound, bound, resolution).split(N)
 
         tmp_grid = torch.zeros_like(self.density_grid)
-        print('------')
         with torch.no_grad():
             for xi, xs in enumerate(X):
                 for yi, ys in enumerate(Y):
                     for zi, zs in enumerate(Z):
                         lx, ly, lz = len(xs), len(ys), len(zs)
                         xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
-                        pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).to(tmp_grid.device).unsqueeze(0) # [1, N, 3]
-                        print('pts', pts.shape, lx, ly, lz)
-                        density = self.density(pts, bound).reshape(lx, ly, lz).detach()
+                        pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3]
+                        # manual padding for ffmlp
+                        n = pts.shape[0]
+                        pad_n = 128 - (n % 128)
+                        if pad_n != 0:
+                            pts = torch.cat([pts, torch.zeros(pad_n, 3)], dim=0)
+                        density = self.density(pts.to(tmp_grid.device), bound)[:n].reshape(lx, ly, lz).detach()
                         tmp_grid[xi * N: xi * N + lx, yi * N: yi * N + ly, zi * N: zi * N + lz] = density
         
         # ema update
         # torch.maximum(self.density_grid * decay, tmp_grid)
 
         # smooth by maxpooling
-        #tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
-        #self.density_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
+        tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
+        self.density_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
 
-        self.density_grid = tmp_grid
+        #self.density_grid = tmp_grid
 
         self.mean_density = torch.mean(self.density_grid).item()
         self.iter_density += 1

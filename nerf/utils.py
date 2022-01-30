@@ -66,7 +66,7 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     rays_o = c2w[..., :3, 3] # [B, 3]
     prefix = c2w.shape[:-2]
 
-    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H)) # indexing="ij"
+    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing='ij') # for torch < 1.10, should remove indexing='ij'
     i = i.t().to(device).reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
     j = j.t().to(device).reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
 
@@ -105,7 +105,7 @@ def extract_fields(bound_min, bound_max, resolution, query_func):
         for xi, xs in enumerate(X):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
-                    xx, yy, zz = torch.meshgrid(xs, ys, zs) # indexing='ij'
+                    xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij') # for torch < 1.10, should remove indexing='ij'
                     pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0) # [1, N, 3]
                     val = query_func(pts).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy() # [1, N, 1] --> [x, y, z]
                     u[xi * N: xi * N + len(xs), yi * N: yi * N + len(ys), zi * N: zi * N + len(zs)] = val
@@ -381,6 +381,11 @@ class Trainer(object):
         os.makedirs(save_path, exist_ok=True)
         
         self.log(f"==> Start Test, save results to {save_path}")
+
+        # update grid
+        if self.model.density_grid is not None:
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                self.model.update_density_grid(self.conf['bound'])
 
         pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
         self.model.eval()
@@ -668,8 +673,12 @@ class Trainer(object):
             self.log("[INFO] loaded model.")
             return
 
-        self.model.load_state_dict(checkpoint_dict['model'])
+        missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
         self.log("[INFO] loaded model.")
+        if len(missing_keys) > 0:
+            self.log(f"[WARN] missing keys: {missing_keys}")
+        if len(unexpected_keys) > 0:
+            self.log(f"[WARN] unexpected keys: {unexpected_keys}")   
 
         if self.ema is not None and 'ema' in checkpoint_dict:
             self.ema.load_state_dict(checkpoint_dict['ema'])
