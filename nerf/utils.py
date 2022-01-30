@@ -436,7 +436,8 @@ class Trainer(object):
 
         # update grid
         if self.model.density_grid is not None:
-            self.model.update_density_grid(self.conf['bound'])
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                self.model.update_density_grid(self.conf['bound'])
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html

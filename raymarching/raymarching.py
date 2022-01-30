@@ -4,6 +4,7 @@ import time
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from torch.cuda.amp import custom_bwd, custom_fwd 
 
 from .backend import _backend
 
@@ -15,6 +16,7 @@ from .backend import _backend
 #   rays: int [N, 3], id, offset, num_steps
 class _generate_points(Function):
     @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
     def forward(ctx, rays_o, rays_d, bound, density_grid, mean_density, iter_density):
         
         rays_o = rays_o.reshape(-1, 3).contiguous()
@@ -25,7 +27,7 @@ class _generate_points(Function):
 
         M = N * 1024 # max points number in total, hardcoded
         
-        points = torch.zeros(M, 7, device=rays_o.device)
+        points = torch.zeros(M, 7, dtype=rays_o.dtype, device=rays_o.device)
         rays = torch.zeros(N, 3, dtype=torch.int32, device=rays_o.device) # id, offset, num_steps
         counter = torch.zeros(2, dtype=torch.int32, device=rays_o.device) # point counter, ray counter
         
@@ -46,6 +48,7 @@ generate_points = _generate_points.apply
 # outputs: depth: [N], image: [N, 3]
 class _accumulate_rays(Function):
     @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
     def forward(ctx, sigmas, rgbs, points, rays, bound):
         
         sigmas = sigmas.contiguous()
@@ -56,8 +59,8 @@ class _accumulate_rays(Function):
         M = sigmas.shape[0]
         N = rays.shape[0]
 
-        depth = torch.zeros(N, device=sigmas.device)
-        image = torch.zeros(N, 3, device=sigmas.device)
+        depth = torch.zeros(N, dtype=sigmas.dtype, device=sigmas.device)
+        image = torch.zeros(N, 3, dtype=sigmas.dtype, device=sigmas.device)
 
         _backend.accumulate_rays_forward(sigmas, rgbs, points, rays, bound, M, N, depth, image)
 
@@ -67,6 +70,7 @@ class _accumulate_rays(Function):
         return depth, image
     
     @staticmethod
+    @custom_bwd
     def backward(ctx, grad_depth, grad_image):
         # grad_depth, grad_image: [N, 3]
 

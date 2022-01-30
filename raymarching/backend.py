@@ -7,7 +7,6 @@ _backend = load(name='_raymarching',
                 extra_cflags=['-O3'], # '-std=c++17'
                 extra_cuda_cflags=['-O3'], # '-arch=sm_70'
                 sources=[os.path.join(_src_path, 'src', f) for f in [
-                    'raymarching.cpp',
                     'raymarching.cu',
                     'bindings.cpp',
                 ]],

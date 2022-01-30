@@ -163,8 +163,12 @@ class NeRFNetwork(nn.Module):
     def density(self, x, bound):
         # x: [B, N, 3], in [-bound, bound]
 
+        print(x.shape)
+
         B, N = x.shape[:2]
         x = x.reshape(B*N, -1)
+
+        print(x.shape)
 
         x = self.encoder(x, size=bound)
         h = self.sigma_net(x)
@@ -299,7 +303,7 @@ class NeRFNetwork(nn.Module):
         return depth, image
 
     
-    def update_density_grid(self, bound, decay=0.95, chunk_size=64):
+    def update_density_grid(self, bound, decay=0.95, chunk_size=1):
         # call before run_cuda, prepare a coarse density grid.
 
         if self.density_grid is None:
@@ -314,6 +318,7 @@ class NeRFNetwork(nn.Module):
         Z = torch.linspace(-bound, bound, resolution).split(N)
 
         tmp_grid = torch.zeros_like(self.density_grid)
+        print('------')
         with torch.no_grad():
             for xi, xs in enumerate(X):
                 for yi, ys in enumerate(Y):
@@ -321,6 +326,7 @@ class NeRFNetwork(nn.Module):
                         lx, ly, lz = len(xs), len(ys), len(zs)
                         xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
                         pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).to(tmp_grid.device).unsqueeze(0) # [1, N, 3]
+                        print('pts', pts.shape, lx, ly, lz)
                         density = self.density(pts, bound).reshape(lx, ly, lz).detach()
                         tmp_grid[xi * N: xi * N + lx, yi * N: yi * N + ly, zi * N: zi * N + lz] = density
         

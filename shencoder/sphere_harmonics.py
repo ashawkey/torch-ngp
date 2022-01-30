@@ -3,11 +3,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from torch.cuda.amp import custom_bwd, custom_fwd 
 
 from .backend import _backend
 
 class _sh_encoder(Function):
     @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
     def forward(ctx, inputs, degree, calc_grad_inputs=False):
         # inputs: [B, input_dim], float in [-1, 1]
         # RETURN: [B, F], float
@@ -16,12 +18,12 @@ class _sh_encoder(Function):
         B, input_dim = inputs.shape # batch size, coord dim
         output_dim = degree ** 2
         
-        outputs = torch.zeros(B, output_dim, device=inputs.device)
+        outputs = torch.zeros(B, output_dim, dtype=inputs.dtype, device=inputs.device)
 
         if calc_grad_inputs:
-            dy_dx = torch.zeros(B, input_dim * output_dim).to(inputs.device)
+            dy_dx = torch.zeros(B, input_dim * output_dim, dtype=inputs.dtype, device=inputs.device)
         else:
-            dy_dx = torch.zeros(1).to(inputs.device)
+            dy_dx = torch.zeros(1, dtype=inputs.dtype, device=inputs.device)
 
         _backend.sh_encode_forward(inputs, outputs, B, input_dim, degree, calc_grad_inputs, dy_dx)
 
@@ -32,6 +34,7 @@ class _sh_encoder(Function):
         return outputs
     
     @staticmethod
+    @custom_bwd
     def backward(ctx, grad):
         # grad: [B, C * C]
 
