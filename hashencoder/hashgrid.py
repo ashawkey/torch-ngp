@@ -26,7 +26,8 @@ class _hash_encode(Function):
         C = embeddings.shape[1] # embedding dim for each level
         H = base_resolution # base resolution
 
-        outputs = torch.zeros(B,  L * C, device=inputs.device, dtype=inputs.dtype)
+        # L first, optimize cache for cuda kernel, but needs an extra permute later
+        outputs = torch.zeros(L, B, C, device=inputs.device, dtype=inputs.dtype)
 
         if calc_grad_inputs:
             dy_dx = torch.zeros(B, L * D * C, device=inputs.device, dtype=inputs.dtype)
@@ -34,6 +35,9 @@ class _hash_encode(Function):
             dy_dx = torch.zeros(1, device=inputs.device, dtype=inputs.dtype)
 
         _backend.hash_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, H, calc_grad_inputs, dy_dx)
+
+        # permute back to [B, L * C]
+        outputs = outputs.permute(1, 0, 2).reshape(B, L * C)
 
         ctx.save_for_backward(inputs, embeddings, offsets, dy_dx)
         ctx.dims = [B, D, C, L, H]

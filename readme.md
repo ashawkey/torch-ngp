@@ -2,7 +2,7 @@
 
 A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 
-**Note**: This repo is far from **instant**, and is still a work in progress.
+**Note**: This repo is far from **instant** (see [here](https://github.com/ashawkey/torch-ngp/issues/3)), and is still a work in progress.
 
 SDF | NeRF
 :---: | :---:

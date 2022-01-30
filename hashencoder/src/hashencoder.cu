@@ -93,7 +93,7 @@ __global__ void kernel_grid(
     // locate
     grid += (uint32_t)offsets[level] * C;
     inputs += b * D;
-    outputs += b * L * C + level * C;
+    outputs += level * B * C + b * C;
 
     const uint32_t hashmap_size = offsets[level + 1] - offsets[level];
     const float scale = exp2f(level) * H - 1.0f;
@@ -311,7 +311,7 @@ void kernel_grid_wrapper(const scalar_t *inputs, const scalar_t *embeddings, con
 // inputs: [B, D], float, in [0, 1]
 // embeddings: [sO, C], float
 // offsets: [L + 1], uint32_t
-// outputs: [B, L * C], float
+// outputs: [L, B, C], float (L first, so only one level of hashmap needs to fit into cache at a time.)
 // H: base resolution
 template <typename scalar_t>
 void hash_encode_forward_cuda(const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx) {
@@ -367,7 +367,7 @@ void hash_encode_backward_cuda(const scalar_t *grad, const scalar_t *inputs, con
 
 
 
-void hash_encode_forward(at::Tensor inputs, at::Tensor embeddings, at::Tensor offsets, at::Tensor outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, at::Tensor dy_dx) {
+void hash_encode_forward(const at::Tensor inputs, const at::Tensor embeddings, const at::Tensor offsets, at::Tensor outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, at::Tensor dy_dx) {
     CHECK_CUDA(inputs);
     CHECK_CUDA(embeddings);
     CHECK_CUDA(offsets);
@@ -392,7 +392,7 @@ void hash_encode_forward(at::Tensor inputs, at::Tensor embeddings, at::Tensor of
     }));
 }
 
-void hash_encode_backward(at::Tensor grad, at::Tensor inputs, at::Tensor embeddings, at::Tensor offsets, at::Tensor grad_embeddings, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, at::Tensor dy_dx, at::Tensor grad_inputs) {
+void hash_encode_backward(const at::Tensor grad, const at::Tensor inputs, const at::Tensor embeddings, const at::Tensor offsets, at::Tensor grad_embeddings, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const uint32_t H, const bool calc_grad_inputs, const at::Tensor dy_dx, at::Tensor grad_inputs) {
     CHECK_CUDA(grad);
     CHECK_CUDA(inputs);
     CHECK_CUDA(embeddings);
