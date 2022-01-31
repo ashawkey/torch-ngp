@@ -25,7 +25,7 @@ class _generate_points(Function):
         N = rays_o.shape[0] # num rays
         H = density_grid.shape[0] # grid resolution
 
-        M = N * 1024 # max points number in total, hardcoded
+        M = N * 512 # max points number in total, hardcoded
         
         points = torch.zeros(M, 7, dtype=rays_o.dtype, device=rays_o.device)
         rays = torch.zeros(N, 3, dtype=torch.int32, device=rays_o.device) # id, offset, num_steps
@@ -36,7 +36,7 @@ class _generate_points(Function):
         m = counter[0].item()
         points = points[:m]
 
-        #print(f"generated points count m = {m} << {M}")
+        #print(f"generated points count m = {m} << {M}, mean points per ray = {m / N:.2f}")
 
         return points, rays
 

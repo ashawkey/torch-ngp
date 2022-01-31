@@ -14,8 +14,8 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num_rays', type=int, default=4096)
-    parser.add_argument('--num_steps', type=int, default=256)
-    parser.add_argument('--upsample_steps', type=int, default=256)
+    parser.add_argument('--num_steps', type=int, default=64)
+    parser.add_argument('--upsample_steps', type=int, default=64)
     parser.add_argument('--max_ray_batch', type=int, default=4096) # lower if OOM
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
@@ -39,7 +39,7 @@ if __name__ == '__main__':
     model = Network(
         encoding="hashgrid", encoding_dir="sphere_harmonics", 
         num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
-        density_grid_size=512 if opt.cuda_raymarching else -1,
+        density_grid_size=128 if opt.cuda_raymarching else -1,
     )
 
     print(model)
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     #trainer.save_mesh()
 
     # render images on test dataset
-    test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=1)
+    test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=2)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
 
     with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA]) as p:

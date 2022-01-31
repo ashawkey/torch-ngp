@@ -21,7 +21,7 @@
 #define CHECK_IS_FLOATING(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Float || x.scalar_type() == at::ScalarType::Half || x.scalar_type() == at::ScalarType::Double, #x " must be a floating tensor")
 
 
-inline constexpr __device__ float DENSITY_THRESH() { return 0.1f; }
+inline constexpr __device__ float DENSITY_THRESH() { return 0.01f; }
 
 
 template <typename T>
@@ -32,6 +32,11 @@ __host__ __device__ T div_round_up(T val, T divisor) {
 
 inline __host__ __device__ float signf(float x) {
 	return copysignf(1.0, x);
+}
+
+
+inline __host__ __device__ float clamp(float x, const float min, const float max) {
+    return fminf(max, fmaxf(min, x));
 }
 
 
@@ -88,13 +93,13 @@ __global__ void kernel_generate_points(
 
     const float dt_small = (far - near) / max_steps; // min step size
     const float dt_large = (far - near) / (H - 1); // max step size
-    const float cone_angle = 0.5 / (H - 1);
+    const float dt_gamma = 1.0;
 
     const float t0 = near + dt_small * rng.next_float();
 
     // if iter_density too low (thus grid is unreliable), only generate coarse points.
     //if (iter_density < 50) {
-    if (true) {
+    if (false) {
 
         uint32_t num_steps = H - 1;
 
@@ -139,14 +144,16 @@ __global__ void kernel_generate_points(
     // first pass: estimation of num_steps
     float t = t0;
     uint32_t num_steps = 0;
+    float dt = dt_small;
 
     while (t <= far && num_steps < max_steps) {
         // current point
-        const float x = ox + t * dx;
-        const float y = oy + t * dy;
-        const float z = oz + t * dz;
+        const float x = clamp(ox + t * dx, -bound, bound);
+        const float y = clamp(oy + t * dy, -bound, bound);
+        const float z = clamp(oz + t * dz, -bound, bound);
+
         // convert to nearest grid position
-        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1);
+        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1); range in [0, H-1]
         const int ny = floorf(0.5 * (y * rbound + 1) * (H - 1));
         const int nz = floorf(0.5 * (z * rbound + 1) * (H - 1));
 
@@ -156,8 +163,7 @@ __global__ void kernel_generate_points(
         // if occpuied, advance a small step, and write to output
         if (density > density_thresh) {
             num_steps++;
-            const float dt = dt_small; // fmaxf(fminf(t * cone_angle, dt_large), dt_small); 
-            //printf("[n=%d s=%d t=%f + %f] occ, p=(%f,%f,%f) n=(%d, %d, %d), density=%f\n", n, num_steps, t, dt, x, y, z, nx, ny, nz, density);
+            dt = fminf(dt * dt_gamma, dt_large); // enlarge dt
             t += dt;
         // else, skip a large step (basically skip a voxel grid)
         } else {
@@ -167,11 +173,7 @@ __global__ void kernel_generate_points(
             const float tz = (((nz + 1 + signf(dz)) / (H - 1) * 2 - 1) * bound - z) * rdz;
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
-            //printf("[n=%d s=%d t=%f-->%f] empty, p=(%f,%f,%f) n=(%d, %d, %d), density=%f\n", n, num_steps, t, tt, x, y, z, nx, ny, nz, density);
-            do {
-                const float dt = dt_small; // fmaxf(fminf(t * cone_angle, dt_large), dt_small); 
-                t += dt;
-            } while (t < tt);
+            do { t += dt; } while (t < tt);
         }
     }
 
@@ -195,18 +197,19 @@ __global__ void kernel_generate_points(
     points += point_index * 7;
 
     t = t0;
-    float last_t = t;
+    dt = dt_small;
     uint32_t step = 0;
 
     //rng = pcg32((uint64_t)n); // reset 
 
     while (t <= far && step < num_steps) {
         // current point
-        const float x = ox + t * dx;
-        const float y = oy + t * dy;
-        const float z = oz + t * dz;
+        const float x = clamp(ox + t * dx, -bound, bound);
+        const float y = clamp(oy + t * dy, -bound, bound);
+        const float z = clamp(oz + t * dz, -bound, bound);
+
         // convert to nearest grid position
-        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1);
+        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1); range in [0, H-1]
         const int ny = floorf(0.5 * (y * rbound + 1) * (H - 1));
         const int nz = floorf(0.5 * (z * rbound + 1) * (H - 1));
 
@@ -217,18 +220,17 @@ __global__ void kernel_generate_points(
         // if occpuied, advance a small step, and write to output
         if (density > density_thresh) {
             // write step
-            points[0] = fmaxf(fminf(x, bound), -bound); // clamp again, to make sure in range...
-            points[1] = fmaxf(fminf(y, bound), -bound);
-            points[2] = fmaxf(fminf(z, bound), -bound);
+            points[0] = x;
+            points[1] = y;
+            points[2] = z;
             points[3] = dx;
             points[4] = dy;
             points[5] = dz;
             step++;
-            const float dt = dt_small; // fmaxf(fminf(t * cone_angle, dt_large), dt_small); 
+            dt = fminf(dt * dt_gamma, dt_large);
             t += dt;
-            points[6] = t - last_t; 
+            points[6] = dt;
             points += 7;
-            last_t = t;
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
@@ -237,10 +239,7 @@ __global__ void kernel_generate_points(
             const float tz = (((nz + 1 + signf(dz)) / (H - 1) * 2 - 1) * bound - z) * rdz;
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
-            do {
-                const float dt = dt_small; // fmaxf(fminf(t * cone_angle, dt_large), dt_small); 
-                t += dt;
-            } while (t < tt);
+            do { t += dt; } while (t < tt);
         }
     }
 }

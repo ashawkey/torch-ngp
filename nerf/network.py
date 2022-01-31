@@ -75,8 +75,20 @@ def plot_pointcloud(pc, color=None):
     # axis
     axes = trimesh.creation.axis(axis_length=4)
     # sphere
-    sphere = trimesh.creation.icosphere(radius=1)
-    trimesh.Scene([pc, axes, sphere]).show()
+    #sphere = trimesh.creation.icosphere(radius=1)
+    trimesh.Scene([pc, axes]).show()
+
+
+def map_color(value, cmap_name='viridis', vmin=None, vmax=None):
+    # value: [N], float
+    # return: RGB, [N, 3], float in [0, 1]
+    import matplotlib.cm as cm
+    if vmin is None: vmin = value.min()
+    if vmax is None: vmax = value.max()
+    value = (value - vmin) / (vmax - vmin) # range in [0, 1]
+    cmap = cm.get_cmap(cmap_name) 
+    rgb = cmap(value)[:, :3]  # will return rgba, we take only first 3 so we get rgb
+    return rgb 
 
 
 # NeRF-SH
@@ -164,6 +176,7 @@ class NeRFNetwork(nn.Module):
         geo_feat = h[..., 1:]
 
         # color
+        
         d = self.encoder_dir(d)
         h = torch.cat([d, geo_feat], dim=-1)
         for l in range(self.num_layers_color):
@@ -328,6 +341,9 @@ class NeRFNetwork(nn.Module):
         Y = torch.linspace(-bound, bound, resolution).split(N)
         Z = torch.linspace(-bound, bound, resolution).split(N)
 
+        # all_pts = []
+        # all_density = []
+
         tmp_grid = torch.zeros_like(self.density_grid)
         with torch.no_grad():
             for xi, xs in enumerate(X):
@@ -338,24 +354,37 @@ class NeRFNetwork(nn.Module):
                         pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).to(tmp_grid.device).unsqueeze(0) # [1, N, 3]
                         density = self.density(pts, bound).reshape(lx, ly, lz).detach()
                         tmp_grid[xi * N: xi * N + lx, yi * N: yi * N + ly, zi * N: zi * N + lz] = density
+
+                        # all_pts.append(pts[0])
+                        # all_density.append(density.reshape(-1))
         
-        # ema update
-        # torch.maximum(self.density_grid * decay, tmp_grid)
 
         # smooth by maxpooling
         #tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
-        #self.density_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
+        self.density_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=3, stride=1, padding=1).squeeze(0).squeeze(0)
 
-        self.density_grid = tmp_grid
+        #self.density_grid = tmp_grid
+        # ema update
+        #self.density_grid = torch.maximum(self.density_grid * decay, tmp_grid)
 
         self.mean_density = torch.mean(self.density_grid).item()
         self.iter_density += 1
 
-        # TMP: save mesh for debug
-        # vertices, triangles = mcubes.marching_cubes(tmp_grid.detach().cpu().numpy(), 5)
-        # vertices = vertices / (resolution - 1.0) * 2 * bound - bound
-        # mesh = trimesh.Trimesh(vertices, triangles)
-        # mesh.export(f'./tmp/{self.iter_density}.ply')
+        # TMP: save as voxel volume (point cloud format...)
+        # all_pts = torch.cat(all_pts, dim=0).detach().cpu().numpy() # [N, 3]
+        # all_density = torch.cat(all_density, dim=0).detach().cpu().numpy() # [N]
+        # mask = all_density > 10
+        # all_pts = all_pts[mask]
+        # all_density = all_density[mask]
+        # plot_pointcloud(all_pts, map_color(all_density))
+
+
+        #vertices, triangles = mcubes.marching_cubes(tmp_grid.detach().cpu().numpy(), 5)
+        #vertices = vertices / (resolution - 1.0) * 2 * bound - bound
+        #mesh = trimesh.Trimesh(vertices, triangles)
+        #mesh.export(f'./{self.iter_density}.ply')
+
+        # TODO: statistics about occupied space ratio.
 
         print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}, write to {self.iter_density}.ply')
 
