@@ -252,13 +252,14 @@ __global__ void kernel_grid_backward(
 
         // atomicAdd for __half is slow (especially for large values), so we use __half2 if N_C % 2 == 0
         // TODO: use float which is better than __half, if N_C % 2 != 0
-        if (N_C % 2 == 0) {
+        if (std::is_same<scalar_t, at::Half>::value && N_C % 2 == 0) {
             #pragma unroll
             for (uint32_t c = 0; c < N_C; c += 2) {
                 // process two __half at once (by interpreting as a __half2)
                 __half2 v = {(__half)(grad[c] * w), (__half)(grad[c + 1] * w)};
                 atomicAdd((__half2*)&grad_grid[index + c], v);
             }
+        // float, or __half when N_C % 2 != 0
         } else {
             #pragma unroll
             for (uint32_t c = 0; c < N_C; c++) {
