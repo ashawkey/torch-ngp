@@ -26,8 +26,8 @@ SDF | NeRF
         - [ ] ray marching in CUDA.
 
 # News
-* 1.30: 
-    * fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
+* 2.6: add support for RGBA image.
+* 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
 * 1.29: 
     * finished an experimental binding of fully-fused MLP.
     * replace SHEncoder with a CUDA implementation.
@@ -53,8 +53,8 @@ bash scripts/run_sdf.sh
 # NeRF experiment
 bash scripts/run_nerf.sh
 
-python train_nerf.py data/fox --workspace trial_nerf # fp32 mode
-python train_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
-python train_nerf.py data/fox --workspace trial_nerf --fp16 --ff # (experimental) fp16 mode + fully-fused MLP
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf # fp32 mode
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # (experimental) fp16 mode + fully-fused MLP
 
 ```

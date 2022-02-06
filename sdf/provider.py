@@ -72,7 +72,7 @@ class SDFDataset(Dataset):
         sdfs = np.zeros((self.num_samples, 1))
         # surface
         points_surface = self.mesh.sample(self.num_samples * 7 // 8)
-        # pertube surface
+        # perturb surface
         points_surface[self.num_samples // 2:] += 0.01 * np.random.randn(self.num_samples * 3 // 8, 3)
         # random
         points_uniform = np.random.rand(self.num_samples // 8, 3) * 2 - 1

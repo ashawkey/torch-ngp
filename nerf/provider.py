@@ -30,27 +30,29 @@ def nerf_matrix_to_ngp(pose, scale=0.33):
 
 
 class NeRFDataset(Dataset):
-    def __init__(self, path, type='train', downscale=1, radius=4, n_test=10):
+    def __init__(self, path, type='train', downscale=1, radius=1, n_test=10):
         super().__init__()
+        # path: the json file path.
 
-        self.path = path
+        self.root_path = os.path.dirname(path)
         self.type = type
         self.downscale = downscale
-        self.radius = radius # TODO: how to determine?
+        self.radius = radius # TODO: generate custom views for test?
 
-        # load ngp-format fox dataset
-        transform_path = os.path.join(self.path, 'transforms.json')
-        with open(transform_path, 'r') as f:
+        # load nerf-compatible format data.
+        with open(path, 'r') as f:
             transform = json.load(f)
         
+        # load image size
+        self.H = int(transform['h']) // downscale
+        self.W = int(transform['w']) // downscale
+
+        # load intrinsics
         self.intrinsic = np.eye(3, dtype=np.float32)
         self.intrinsic[0, 0] = transform['fl_x'] / downscale
         self.intrinsic[1, 1] = transform['fl_y'] / downscale
         self.intrinsic[0, 2] = transform['cx'] / downscale
         self.intrinsic[1, 2] = transform['cy'] / downscale
-
-        self.H = int(transform['h']) // downscale
-        self.W = int(transform['w']) // downscale
 
         frames = transform["frames"]
         frames = sorted(frames, key=lambda d: d['file_path'])
@@ -80,7 +82,7 @@ class NeRFDataset(Dataset):
             self.poses = []
             self.images = []
             for f in frames:
-                f_path = os.path.join(self.path, f['file_path'])
+                f_path = os.path.join(self.root_path, f['file_path'])
 
                 # there are non-exist paths in fox...
                 if not os.path.exists(f_path):
@@ -89,10 +91,14 @@ class NeRFDataset(Dataset):
                 pose = np.array(f['transform_matrix'], dtype=np.float32) # [4, 4]
                 pose = nerf_matrix_to_ngp(pose)
 
-                image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED) # [H, W, 3]
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED) # [H, W, 3] o [H, W, 4]
+                # add support for the alpha channel as a mask.
+                if image.shape[-1] == 3: 
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                else:
+                    image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
                 image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
-                image = image.astype(np.float32) / 255 # [H, W, 3]
+                image = image.astype(np.float32) / 255 # [H, W, 3/4]
 
                 self.poses.append(pose)
                 self.images.append(image)

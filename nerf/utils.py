@@ -60,7 +60,7 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     # c2w: [B, 4, 4]
     # intrinsics: [B, 3, 3]
     # return: rays_o, rays_d: [B, N_rays, 3]
-    # return: selected_inds: [B, N_rays]
+    # return: select_inds: [B, N_rays]
 
     device = c2w.device
     rays_o = c2w[..., :3, 3] # [B, 3]
@@ -262,32 +262,33 @@ class Trainer(object):
     ### ------------------------------	
 
     def train_step(self, data):
-        images = data["image"] # [B, H, W, 3]
+        images = data["image"] # [B, H, W, 3/4]
         poses = data["pose"] # [B, 4, 4]
         intrinsics = data["intrinsic"] # [B, 3, 3]
 
         # sample rays 
         B, H, W, C = images.shape
         rays_o, rays_d, inds = get_rays(poses, intrinsics, H, W, self.conf['num_rays'])
-        gt_rgb = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds],-1)) # [B, N, 3]
+        images = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds], -1)) # [B, N, 3/4]
 
-        #print('rays_o', rays_o.shape, rays_o.min().item(), '~', rays_o.max().item(), rays_o[0, 0])
-        #print('rays_d', rays_d.shape, rays_d.min().item(), '~', rays_d.max().item(), rays_d[0, 0])
-        #print('gt_rgb', gt_rgb.shape, gt_rgb.min().item(), '~', gt_rgb.max().item(), gt_rgb[0, 0])
-        
-        #with torch.autograd.profiler.emit_nvtx():
-        outputs = self.model.render(rays_o, rays_d, staged=False, **self.conf)
+        # train with random background color if using alpha mixing
+        #bg_color = torch.ones(3, device=images.device) # [3], fixed white background
+        bg_color = torch.rand(3, device=images.device) # [3], frame-wise random.
+        if C == 4:
+            gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
+        else:
+            gt_rgb = images
+
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, **self.conf)
             
         pred_rgb = outputs['rgb']
-
-        #print('pred_rgb', pred_rgb.shape, pred_rgb.min().item(), '~', pred_rgb.max().item(), pred_rgb[0, 0])
 
         loss = self.criterion(pred_rgb, gt_rgb)
 
         return pred_rgb, gt_rgb, loss
 
     def eval_step(self, data):
-        images = data["image"] # [B, H, W, 3]
+        images = data["image"] # [B, H, W, 3/4]
         poses = data["pose"] # [B, 4, 4]
         intrinsics = data["intrinsic"] # [B, 3, 3]
 
@@ -295,14 +296,21 @@ class Trainer(object):
         B, H, W, C = images.shape
         rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
 
-        outputs = self.model.render(rays_o, rays_d, staged=True, **self.conf)
+        bg_color = torch.ones(3, device=images.device) # [3]
+        # eval with fixed background color
+        if C == 4:
+            gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
+        else:
+            gt_rgb = images
+            
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, **self.conf)
 
-        pred_rgb = outputs['rgb'].reshape(B, H, W, C)
+        pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
-        loss = self.criterion(pred_rgb, images)
+        loss = self.criterion(pred_rgb, gt_rgb)
 
-        return pred_rgb, pred_depth, images, loss
+        return pred_rgb, pred_depth, gt_rgb, loss
 
     def test_step(self, data):  
         poses = data["pose"] # [B, 4, 4]
@@ -318,7 +326,7 @@ class Trainer(object):
         return pred_rgb, pred_depth
 
 
-    def save_mesh(self, save_path=None, resolution=256, threshold=5):
+    def save_mesh(self, save_path=None, resolution=256, bound=1, threshold=5):
 
         if save_path is None:
             save_path = os.path.join(self.workspace, 'meshes', f'{self.name}_{self.epoch}.ply')
@@ -330,11 +338,11 @@ class Trainer(object):
         def query_func(pts):
             with torch.no_grad():
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    sdfs = self.model.density(pts.to(self.device), self.conf['bound'])
+                    sdfs = self.model.density(pts.to(self.device), bound)
             return sdfs
 
-        bounds_min = torch.FloatTensor([-1, -1, -1])
-        bounds_max = torch.FloatTensor([1, 1, 1])
+        bounds_min = torch.FloatTensor([-bound] * 3)
+        bounds_max = torch.FloatTensor([bound] * 3)
 
         vertices, triangles = extract_geometry(bounds_min, bounds_max, resolution=resolution, threshold=threshold, query_func=query_func)
 

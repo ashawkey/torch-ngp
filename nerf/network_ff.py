@@ -176,8 +176,9 @@ class NeRFNetwork(nn.Module):
 
         return sigma
 
-    def run(self, rays_o, rays_d, num_steps, bound, upsample_steps):
+    def run(self, rays_o, rays_d, num_steps, bound, upsample_steps, bg_color):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
+        # bg_color: [3] in range [0, 1]
         # return: image: [B, N, 3], depth: [B, N]
 
         B, N = rays_o.shape[:2]
@@ -192,7 +193,7 @@ class NeRFNetwork(nn.Module):
         z_vals = z_vals.expand((B, N, num_steps)) # [B, N, T]
         z_vals = near + (far - near) * z_vals # [B, N, T], in [near, far]
 
-        # pertube z_vals
+        # perturb z_vals
         sample_dist = (far - near) / num_steps
         if self.training:
             z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
@@ -210,7 +211,6 @@ class NeRFNetwork(nn.Module):
         dirs = rays_d.unsqueeze(-2).expand_as(pts)
 
         sigmas, rgbs = self(pts.reshape(B, -1, 3), dirs.reshape(B, -1, 3), bound=bound)
-
 
         rgbs = rgbs.reshape(B, N, num_steps, 3) # [B, N, T, 3]
         sigmas = sigmas.reshape(B, N, num_steps) # [B, N, T]
@@ -232,6 +232,7 @@ class NeRFNetwork(nn.Module):
                 new_z_vals = new_z_vals.reshape(B, N, upsample_steps)
 
                 new_pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, t, 3] -> [B, N, t, 3]
+                new_pts = new_pts.clamp(-bound, bound)
 
             # only forward new points to save computation
             new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
@@ -251,7 +252,7 @@ class NeRFNetwork(nn.Module):
 
         ### render core
         deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]
-        deltas = torch.cat([deltas, 1e10 * torch.ones_like(deltas[:, :, :1])], dim=-1)
+        deltas = torch.cat([deltas, sample_dist * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
         alphas = 1 - torch.exp(-deltas * sigmas) # [B, N, T]
         alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]
@@ -266,12 +267,16 @@ class NeRFNetwork(nn.Module):
 
         # calculate color
         image = torch.sum(weights.unsqueeze(-1) * rgbs, dim=-2) # [B, N, 3], in [0, 1]
-        image = image + (1 - weights_sum).unsqueeze(-1) # white background (infinite depth)
+
+        # mix background color
+        if bg_color is None:
+            bg_color = 1
+        image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
 
         return depth, image
 
 
-    def run_cuda(self, rays_o, rays_d, num_steps, bound, upsample_steps):
+    def run_cuda(self, rays_o, rays_d, num_steps, bound, upsample_steps, bg_color):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: image: [B, N, 3], depth: [B, N]
 
@@ -356,7 +361,7 @@ class NeRFNetwork(nn.Module):
         print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}, write to {self.iter_density}.ply')
 
 
-    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=256000, **kwargs):
+    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=256000, bg_color=None, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
 
@@ -374,7 +379,7 @@ class NeRFNetwork(nn.Module):
                 while head < N:
                     tail = min(head + max_ray_batch, N)
 
-                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, bound, upsample_steps)
+                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, bound, upsample_steps, bg_color)
                     
                     depth[b:b+1, head:tail] = depth_
                     image[b:b+1, head:tail] = image_
@@ -382,7 +387,7 @@ class NeRFNetwork(nn.Module):
                     head += max_ray_batch
 
         else:
-            depth, image = _run(rays_o, rays_d, num_steps, bound, upsample_steps)
+            depth, image = _run(rays_o, rays_d, num_steps, bound, upsample_steps, bg_color)
 
         results = {}
         results['depth'] = depth

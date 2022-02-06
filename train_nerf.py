@@ -16,8 +16,8 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--num_rays', type=int, default=4096)
-    parser.add_argument('--num_steps', type=int, default=64)
-    parser.add_argument('--upsample_steps', type=int, default=64)
+    parser.add_argument('--num_steps', type=int, default=128)
+    parser.add_argument('--upsample_steps', type=int, default=128)
     parser.add_argument('--max_ray_batch', type=int, default=4096)
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     seed_everything(opt.seed)
 
     train_dataset = NeRFDataset(opt.path, 'train', radius=opt.radius)
-    valid_dataset = NeRFDataset(opt.path, 'valid', downscale=4, radius=opt.radius)
+    valid_dataset = NeRFDataset(opt.path, 'valid', downscale=2, radius=opt.radius)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
@@ -65,10 +65,11 @@ if __name__ == '__main__':
     scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150], gamma=0.33)
 
     trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest', eval_interval=10)
-
+    
     trainer.train(train_loader, valid_loader, 200)
 
     # test dataset
+    #trainer.save_mesh()
     test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=10)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
     trainer.test(test_loader)

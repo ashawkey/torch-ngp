@@ -132,7 +132,7 @@ __global__ void kernel_generate_points(
             points[4] = dy;
             points[5] = dz;
             step++;
-            t += dt_large * rng.next_float() * 2; // random pertube
+            t += dt_large * rng.next_float() * 2; // random perturb
             points[6] = t - last_t; 
             points += 7;
             last_t = t;

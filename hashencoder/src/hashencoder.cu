@@ -149,6 +149,7 @@ __global__ void kernel_grid(
     }
 
     // prepare dy_dx for calc_grad_inputs
+    // differentiable (soft) indexing: https://discuss.pytorch.org/t/differentiable-indexing/17647/9
     if (calc_grad_inputs) {
 
         dy_dx += b * D * L * C + level * D * C; // B L D C
@@ -160,7 +161,8 @@ __global__ void kernel_grid(
 
             #pragma unroll
             for (uint32_t idx = 0; idx < (1 << (D - 1)); idx++) {
-                float w = scale;
+                //float w = scale;
+                float w = 1;
                 uint32_t pos_grid_local[D];
 
                 #pragma unroll
