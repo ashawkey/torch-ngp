@@ -248,7 +248,7 @@ class NeRFNetwork(nn.Module):
             with torch.no_grad():
 
                 deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]
-                deltas = torch.cat([deltas, 1e10 * torch.ones_like(deltas[:, :, :1])], dim=-1)
+                deltas = torch.cat([deltas, sample_dist * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
                 alphas = 1 - torch.exp(-deltas * sigmas) # [B, N, T]
                 alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]
