@@ -26,10 +26,10 @@ class _ffmlp_forward(Function):
         # print('[weights]', torch.any(torch.isnan(weights)), weights.shape, weights.dtype, weights.min().item(), weights.max().item())
 
         # allocate output
-        outputs = torch.zeros(B, output_dim, device=inputs.device, dtype=inputs.dtype)
+        outputs = torch.empty(B, output_dim, device=inputs.device, dtype=inputs.dtype)
 
         if not inference:
-            forward_buffer = torch.zeros(num_layers, B, hidden_dim, device=inputs.device, dtype=inputs.dtype)
+            forward_buffer = torch.empty(num_layers, B, hidden_dim, device=inputs.device, dtype=inputs.dtype)
             _backend.ffmlp_forward(inputs, weights, B, input_dim, output_dim, hidden_dim, num_layers, activation, output_activation, forward_buffer, outputs)
             ctx.save_for_backward(inputs, weights, outputs, forward_buffer)
             ctx.dims = (input_dim, output_dim, hidden_dim, num_layers, activation, output_activation, calc_grad_inputs)
@@ -37,7 +37,7 @@ class _ffmlp_forward(Function):
             # print('[outputs]', torch.any(torch.isnan(outputs)), outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())
             # print('[forward_buffer]', torch.any(torch.isnan(forward_buffer)), forward_buffer.shape, forward_buffer.dtype, forward_buffer.min().item(), forward_buffer.max().item())
         else:
-            inference_buffer = torch.zeros(B, hidden_dim, device=inputs.device, dtype=inputs.dtype)
+            inference_buffer = torch.empty(B, hidden_dim, device=inputs.device, dtype=inputs.dtype)
             _backend.ffmlp_inference(inputs, weights, B, input_dim, output_dim, hidden_dim, num_layers, activation, output_activation, inference_buffer, outputs)
 
             # print('[outputs]', torch.any(torch.isnan(outputs)), outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())

@@ -281,9 +281,11 @@ class NeRFNetwork(nn.Module):
         # return: image: [B, N, 3], depth: [B, N]
 
         B, N = rays_o.shape[:2]
+        if bg_color is None:
+            bg_color = torch.ones(3, dtype=rays_o.dtype, device=rays_o.device)
 
         ### generate points (forward only)
-        points, rays = raymarching.generate_points(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density)
+        points, rays = raymarching.generate_points(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, self.training)
 
         ### call network inference
         # manual pad for ffmlp
@@ -302,7 +304,7 @@ class NeRFNetwork(nn.Module):
         ### accumulate rays (need backward)
         # inputs: sigmas: [M], rgbs: [M, 3], offsets: [N+1]
         # outputs: depth: [N], image: [N, 3]
-        depth, image = raymarching.accumulate_rays(sigmas, rgbs, points, rays, bound)
+        depth, image = raymarching.accumulate_rays(sigmas, rgbs, points, rays, bound, bg_color)
 
         depth = depth.reshape(B, N)
         image = image.reshape(B, N, 3)
@@ -340,14 +342,13 @@ class NeRFNetwork(nn.Module):
                         density = self.density(pts.to(tmp_grid.device), bound)[:n].reshape(lx, ly, lz).detach()
                         tmp_grid[xi * N: xi * N + lx, yi * N: yi * N + ly, zi * N: zi * N + lz] = density
         
-        # ema update
-        # torch.maximum(self.density_grid * decay, tmp_grid)
-
         # smooth by maxpooling
         tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
-        self.density_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
+        tmp_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
 
-        #self.density_grid = tmp_grid
+        # ema update
+        self.density_grid = tmp_grid
+        #self.density_grid = torch.maximum(self.density_grid * decay, tmp_grid)
 
         self.mean_density = torch.mean(self.density_grid).item()
         self.iter_density += 1
@@ -358,7 +359,7 @@ class NeRFNetwork(nn.Module):
         # mesh = trimesh.Trimesh(vertices, triangles)
         # mesh.export(f'./tmp/{self.iter_density}.ply')
 
-        print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}, write to {self.iter_density}.ply')
+        print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}')
 
 
     def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=256000, bg_color=None, **kwargs):
@@ -371,8 +372,8 @@ class NeRFNetwork(nn.Module):
         device = rays_o.device
 
         if staged:
-            depth = torch.zeros((B, N), device=device)
-            image = torch.zeros((B, N, 3), device=device)
+            depth = torch.empty((B, N), device=device)
+            image = torch.empty((B, N, 3), device=device)
 
             for b in range(B):
                 head = 0

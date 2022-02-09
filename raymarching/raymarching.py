@@ -17,7 +17,7 @@ from .backend import _backend
 class _generate_points(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
-    def forward(ctx, rays_o, rays_d, bound, density_grid, mean_density, iter_density):
+    def forward(ctx, rays_o, rays_d, bound, density_grid, mean_density, iter_density, perturb=False):
         
         rays_o = rays_o.reshape(-1, 3).contiguous()
         rays_d = rays_d.reshape(-1, 3).contiguous()
@@ -25,13 +25,13 @@ class _generate_points(Function):
         N = rays_o.shape[0] # num rays
         H = density_grid.shape[0] # grid resolution
 
-        M = N * 512 # max points number in total, hardcoded
+        M = N * 1024 # max points number in total, hardcoded
         
-        points = torch.zeros(M, 7, dtype=rays_o.dtype, device=rays_o.device)
-        rays = torch.zeros(N, 3, dtype=torch.int32, device=rays_o.device) # id, offset, num_steps
+        points = torch.empty(M, 7, dtype=rays_o.dtype, device=rays_o.device)
+        rays = torch.empty(N, 3, dtype=torch.int32, device=rays_o.device) # id, offset, num_steps
         counter = torch.zeros(2, dtype=torch.int32, device=rays_o.device) # point counter, ray counter
         
-        _backend.generate_points(rays_o, rays_d, density_grid, mean_density, iter_density, bound, N, H, M, points, rays, counter) # m is the actually used points number
+        _backend.generate_points(rays_o, rays_d, density_grid, mean_density, iter_density, bound, N, H, M, points, rays, counter, perturb) # m is the actually used points number
 
         m = counter[0].item()
         points = points[:m]
@@ -49,7 +49,7 @@ generate_points = _generate_points.apply
 class _accumulate_rays(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
-    def forward(ctx, sigmas, rgbs, points, rays, bound):
+    def forward(ctx, sigmas, rgbs, points, rays, bound, bg_color):
         
         sigmas = sigmas.contiguous()
         rgbs = rgbs.contiguous()
@@ -59,12 +59,12 @@ class _accumulate_rays(Function):
         M = sigmas.shape[0]
         N = rays.shape[0]
 
-        depth = torch.zeros(N, dtype=sigmas.dtype, device=sigmas.device)
-        image = torch.zeros(N, 3, dtype=sigmas.dtype, device=sigmas.device)
+        depth = torch.empty(N, dtype=sigmas.dtype, device=sigmas.device)
+        image = torch.empty(N, 3, dtype=sigmas.dtype, device=sigmas.device)
 
-        _backend.accumulate_rays_forward(sigmas, rgbs, points, rays, bound, M, N, depth, image)
+        _backend.accumulate_rays_forward(sigmas, rgbs, points, rays, bound, bg_color, M, N, depth, image)
 
-        ctx.save_for_backward(sigmas, rgbs, points, rays, image)
+        ctx.save_for_backward(sigmas, rgbs, points, rays, image, bg_color)
         ctx.dims = [M, N, bound]
 
         return depth, image
@@ -76,7 +76,7 @@ class _accumulate_rays(Function):
 
         grad_image = grad_image.contiguous()
 
-        sigmas, rgbs, points, rays, image = ctx.saved_tensors
+        sigmas, rgbs, points, rays, image, bg_color = ctx.saved_tensors
         M, N, bound = ctx.dims
         
         grad_sigmas = torch.zeros_like(sigmas)
@@ -84,7 +84,7 @@ class _accumulate_rays(Function):
 
         _backend.accumulate_rays_backward(grad_image, sigmas, rgbs, points, rays, image, bound, M, N, grad_sigmas, grad_rgbs)
 
-        return grad_sigmas, grad_rgbs, None, None, None
+        return grad_sigmas, grad_rgbs, None, None, None, None
 
 
 accumulate_rays = _accumulate_rays.apply

@@ -8,7 +8,7 @@
 #include <torch/torch.h>
 #include <torch/extension.h>
 
-#include <algorithm>
+//#include <algorithm>
 #include <stdexcept>
 
 #include <cstdio>
@@ -20,8 +20,8 @@
 #define CHECK_IS_INT(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Int, #x " must be an int tensor")
 #define CHECK_IS_FLOATING(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Float || x.scalar_type() == at::ScalarType::Half || x.scalar_type() == at::ScalarType::Double, #x " must be a floating tensor")
 
-
-inline constexpr __device__ float DENSITY_THRESH() { return 0.01f; }
+// TODO: how to determine the suitable thresh ???
+inline constexpr __device__ float DENSITY_THRESH() { return 10.0f; }
 
 
 template <typename T>
@@ -56,7 +56,8 @@ __global__ void kernel_generate_points(
     const uint32_t N, const uint32_t H, const uint32_t M,
     scalar_t * points,
     int * rays,
-    int * counter
+    int * counter,
+    const bool perturb
 ) {
     // parallel per ray
     const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
@@ -64,7 +65,6 @@ __global__ void kernel_generate_points(
     
     const uint32_t max_steps = M / N; // fixed to 1024
     const float rbound = 1 / bound;
-    pcg32 rng((uint64_t)n);
 
     const float density_thresh = fminf(DENSITY_THRESH(), mean_density);
 
@@ -93,58 +93,60 @@ __global__ void kernel_generate_points(
 
     const float dt_small = (far - near) / max_steps; // min step size
     const float dt_large = (far - near) / (H - 1); // max step size
-    const float dt_gamma = 1.0;
+    const float dt_gamma = 1.001;
 
-    const float t0 = near + dt_small * rng.next_float();
+    const float t0 = near; //  + dt_small * rng.next_float();
 
     // if iter_density too low (thus grid is unreliable), only generate coarse points.
     //if (iter_density < 50) {
-    if (false) {
+    // if (false) {
 
-        uint32_t num_steps = H - 1;
+    //     uint32_t num_steps = H - 1;
 
-        uint32_t point_index = atomicAdd(counter, num_steps);
-        uint32_t ray_index = atomicAdd(counter + 1, 1);
+    //     uint32_t point_index = atomicAdd(counter, num_steps);
+    //     uint32_t ray_index = atomicAdd(counter + 1, 1);
 
-        if (point_index + num_steps > M) return;
+    //     if (point_index + num_steps > M) return;
 
-        points += point_index * 7;
+    //     points += point_index * 7;
 
-        // write rays
-        rays[ray_index * 3] = n;
-        rays[ray_index * 3 + 1] = point_index;
-        rays[ray_index * 3 + 2] = num_steps;
+    //     // write rays
+    //     rays[ray_index * 3] = n;
+    //     rays[ray_index * 3 + 1] = point_index;
+    //     rays[ray_index * 3 + 2] = num_steps;
 
-        float t = t0;
-        float last_t = t;
-        uint32_t step = 0;
+    //     float t = t0;
+    //     float last_t = t;
+    //     uint32_t step = 0;
 
-        while (t <= far && step < num_steps) {
-            // current point
-            const float x = ox + t * dx;
-            const float y = oy + t * dy;
-            const float z = oz + t * dz;            
-            // write step
-            points[0] = x;
-            points[1] = y;
-            points[2] = z;
-            points[3] = dx;
-            points[4] = dy;
-            points[5] = dz;
-            step++;
-            t += dt_large * rng.next_float() * 2; // random perturb
-            points[6] = t - last_t; 
-            points += 7;
-            last_t = t;
-        }
-        return;
-    }
+    //     while (t <= far && step < num_steps) {
+    //         // current point
+    //         const float x = ox + t * dx;
+    //         const float y = oy + t * dy;
+    //         const float z = oz + t * dz;            
+    //         // write step
+    //         points[0] = x;
+    //         points[1] = y;
+    //         points[2] = z;
+    //         points[3] = dx;
+    //         points[4] = dy;
+    //         points[5] = dz;
+    //         step++;
+    //         t += dt_large * rng.next_float() * 2; // random perturb
+    //         points[6] = t - last_t; 
+    //         points += 7;
+    //         last_t = t;
+    //     }
+    //     return;
+    // }
 
     // else use two passes to generate fine samples
     // first pass: estimation of num_steps
     float t = t0;
     uint32_t num_steps = 0;
     float dt = dt_small;
+
+    pcg32 rng((uint64_t)n);
 
     while (t <= far && num_steps < max_steps) {
         // current point
@@ -164,7 +166,8 @@ __global__ void kernel_generate_points(
         if (density > density_thresh) {
             num_steps++;
             dt = fminf(dt * dt_gamma, dt_large); // enlarge dt
-            t += dt;
+            if (perturb) t += dt * rng.next_float() * 2;
+            else t += dt;
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
@@ -200,7 +203,7 @@ __global__ void kernel_generate_points(
     dt = dt_small;
     uint32_t step = 0;
 
-    //rng = pcg32((uint64_t)n); // reset 
+    rng = pcg32((uint64_t)n); // reset 
 
     while (t <= far && step < num_steps) {
         // current point
@@ -228,8 +231,14 @@ __global__ void kernel_generate_points(
             points[5] = dz;
             step++;
             dt = fminf(dt * dt_gamma, dt_large);
-            t += dt;
-            points[6] = dt;
+            if (perturb) {
+                const float p_dt = dt * rng.next_float() * 2;
+                t += p_dt;
+                points[6] = p_dt;
+            } else {
+                t += dt;
+                points[6] = dt;
+            }
             points += 7;
         // else, skip a large step (basically skip a voxel grid)
         } else {
@@ -250,9 +259,9 @@ __global__ void kernel_generate_points(
 // dirs: [M, 3]
 // rays: [N, 3], idx, offset, num_steps
 template <typename scalar_t>
-void generate_points_cuda(const scalar_t *rays_o, const scalar_t *rays_d, const scalar_t *grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, scalar_t *points, int *rays, int *counter) {
+void generate_points_cuda(const scalar_t *rays_o, const scalar_t *rays_d, const scalar_t *grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, scalar_t *points, int *rays, int *counter, const bool perturb) {
     static constexpr uint32_t N_THREAD = 256;
-    kernel_generate_points<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o, rays_d, grid, mean_density, iter_density, bound, N, H, M, points, rays, counter);
+    kernel_generate_points<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o, rays_d, grid, mean_density, iter_density, bound, N, H, M, points, rays, counter, perturb);
 }
 
 
@@ -260,7 +269,8 @@ template <typename scalar_t>
 __global__ void kernel_accumulate_rays_forward(
     const scalar_t * __restrict__ sigmas,
     const scalar_t * __restrict__ rgbs,  
-    const scalar_t * __restrict__ points,  
+    const scalar_t * __restrict__ points,
+    const scalar_t * __restrict__ bg_color,
     const int * __restrict__ rays,
     const float bound,
     const uint32_t M, const uint32_t N,
@@ -315,15 +325,15 @@ __global__ void kernel_accumulate_rays_forward(
         step++;
     }
 
-    d /= (1.0f - T) * (2 * bound * 1.73205080757) + 1e-8; // make sure it is strictly in [0, 1)
+    //d /= 2 * bound; // make sure it is strictly in [0, 1)
 
     //printf("[n=%d] rgb=(%f, %f, %f), d=%f\n", n, r, g, b, d);
 
-    // fixed white background
+    // mix with background
     if (step == num_steps) {
-        r += T;
-        g += T;
-        b += T;
+        r += T * bg_color[0];
+        g += T * bg_color[1];
+        b += T * bg_color[2];
     }
 
     // write
@@ -336,13 +346,14 @@ __global__ void kernel_accumulate_rays_forward(
 // sigmas: [M]
 // rgbs: [M, 3]
 // points: [M, 7]
+// bg_color: [3]
 // rays: [N, 3], idx, offset, num_steps
 // depth: [N]
 // image: [N, 3]
 template <typename scalar_t>
-void accumulate_rays_forward_cuda(const scalar_t *sigmas, const scalar_t *rgbs, const scalar_t *points, const int *rays, const float bound, const uint32_t M, const uint32_t N, scalar_t *depth, scalar_t *image) {
+void accumulate_rays_forward_cuda(const scalar_t *sigmas, const scalar_t *rgbs, const scalar_t *points, const scalar_t *bg_color, const int *rays, const float bound, const uint32_t M, const uint32_t N, scalar_t *depth, scalar_t *image) {
     static constexpr uint32_t N_THREAD = 256;
-    kernel_accumulate_rays_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(sigmas, rgbs, points, rays, bound, M, N, depth, image);
+    kernel_accumulate_rays_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(sigmas, rgbs, points, bg_color, rays, bound, M, N, depth, image);
 }
 
 
@@ -375,8 +386,6 @@ __global__ void kernel_accumulate_rays_backward(
     points += offset * 7;
     grad_sigmas += offset;
     grad_rgbs += offset * 3;
-
-    //const float loss_scale = 1.0f;
 
     // accumulate 
     uint32_t step = 0;
@@ -441,7 +450,7 @@ void accumulate_rays_backward_cuda(const scalar_t *grad, const scalar_t *sigmas,
 
 
 
-void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, at::Tensor points, at::Tensor rays, at::Tensor counter) {
+void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, at::Tensor points, at::Tensor rays, at::Tensor counter, const bool perturb) {
     CHECK_CUDA(rays_o);
     CHECK_CUDA(rays_d);
     CHECK_CUDA(grid);
@@ -466,12 +475,12 @@ void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, cons
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.type(), "generate_points", ([&] {
-        generate_points_cuda<scalar_t>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, points.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>());
+        generate_points_cuda<scalar_t>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, points.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
     }));
 }
 
 
-void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor points, at::Tensor rays, const float bound, const uint32_t M, const uint32_t N, at::Tensor depth, at::Tensor image) {
+void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor points, at::Tensor rays, const float bound, at::Tensor bg_color, const uint32_t M, const uint32_t N, at::Tensor depth, at::Tensor image) {
 
     CHECK_CUDA(sigmas);
     CHECK_CUDA(rgbs);
@@ -479,6 +488,7 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
     CHECK_CUDA(rays);
     CHECK_CUDA(depth);
     CHECK_CUDA(image);
+    CHECK_CUDA(bg_color);
 
     CHECK_CONTIGUOUS(sigmas);
     CHECK_CONTIGUOUS(rgbs);
@@ -486,6 +496,7 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
     CHECK_CONTIGUOUS(rays);
     CHECK_CONTIGUOUS(depth);
     CHECK_CONTIGUOUS(image);
+    CHECK_CONTIGUOUS(bg_color);
 
     CHECK_IS_FLOATING(sigmas);
     CHECK_IS_FLOATING(rgbs);
@@ -493,10 +504,11 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
     CHECK_IS_INT(rays);
     CHECK_IS_FLOATING(depth);
     CHECK_IS_FLOATING(image);
+    CHECK_IS_FLOATING(bg_color);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     sigmas.type(), "accumulate_rays_forward", ([&] {
-        accumulate_rays_forward_cuda<scalar_t>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), points.data_ptr<scalar_t>(), rays.data_ptr<int>(), bound, M, N, depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
+        accumulate_rays_forward_cuda<scalar_t>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), points.data_ptr<scalar_t>(), bg_color.data_ptr<scalar_t>(), rays.data_ptr<int>(), bound, M, N, depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
     }));
 }
 

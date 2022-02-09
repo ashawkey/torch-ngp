@@ -26,6 +26,7 @@ SDF | NeRF
         - [ ] ray marching in CUDA.
 
 # News
+* 2.10: add cuda_raymarching, can train/infer faster, but performance is worse currently.
 * 2.6: add support for RGBA image.
 * 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
 * 1.29: 
@@ -55,6 +56,7 @@ bash scripts/run_nerf.sh
 
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf # fp32 mode
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # (experimental) fp16 mode + fully-fused MLP
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # fp16 mode + fully-fused MLP
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_raymarching # (experimental) fp16 mode + fully-fused MLP + cuda raymarching
 
 ```

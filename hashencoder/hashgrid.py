@@ -28,12 +28,12 @@ class _hash_encode(Function):
         H = base_resolution # base resolution
 
         # L first, optimize cache for cuda kernel, but needs an extra permute later
-        outputs = torch.zeros(L, B, C, device=inputs.device, dtype=inputs.dtype)
+        outputs = torch.empty(L, B, C, device=inputs.device, dtype=inputs.dtype)
 
         if calc_grad_inputs:
-            dy_dx = torch.zeros(B, L * D * C, device=inputs.device, dtype=inputs.dtype)
+            dy_dx = torch.empty(B, L * D * C, device=inputs.device, dtype=inputs.dtype)
         else:
-            dy_dx = torch.zeros(1, device=inputs.device, dtype=inputs.dtype)
+            dy_dx = torch.empty(1, device=inputs.device, dtype=inputs.dtype)
 
         _backend.hash_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, calc_grad_inputs, dy_dx)
 
@@ -110,7 +110,7 @@ class HashEncoder(nn.Module):
         self.n_params = self.offsets[-1] * level_dim
 
         # parameters
-        self.embeddings = nn.Parameter(torch.zeros(offset, level_dim))
+        self.embeddings = nn.Parameter(torch.empty(offset, level_dim))
 
         self.reset_parameters()
     
