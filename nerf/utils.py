@@ -326,7 +326,7 @@ class Trainer(object):
         return pred_rgb, pred_depth
 
 
-    def save_mesh(self, save_path=None, resolution=256, bound=1, threshold=5):
+    def save_mesh(self, save_path=None, resolution=256, bound=1, threshold=10):
 
         if save_path is None:
             save_path = os.path.join(self.workspace, 'meshes', f'{self.name}_{self.epoch}.ply')

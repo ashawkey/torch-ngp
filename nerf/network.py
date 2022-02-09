@@ -251,7 +251,7 @@ class NeRFNetwork(nn.Module):
                 deltas = torch.cat([deltas, sample_dist * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
                 alphas = 1 - torch.exp(-deltas * sigmas) # [B, N, T]
-                alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]
+                alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-15], dim=-1) # [B, N, T+1]
                 weights = alphas * torch.cumprod(alphas_shifted, dim=-1)[:, :, :-1] # [B, N, T]
 
                 # sample new z_vals
@@ -283,7 +283,7 @@ class NeRFNetwork(nn.Module):
         deltas = torch.cat([deltas, sample_dist * torch.ones_like(deltas[:, :, :1])], dim=-1)
 
         alphas = 1 - torch.exp(-deltas * sigmas) # [B, N, T]
-        alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-7], dim=-1) # [B, N, T+1]
+        alphas_shifted = torch.cat([torch.ones_like(alphas[:, :, :1]), 1 - alphas + 1e-15], dim=-1) # [B, N, T+1]
         weights = alphas * torch.cumprod(alphas_shifted, dim=-1)[:, :, :-1] # [B, N, T]
 
         # calculate weight_sum (mask)
@@ -291,7 +291,7 @@ class NeRFNetwork(nn.Module):
         
         # calculate depth 
         ori_z_vals = ((z_vals - near) / (far - near)).clamp(0, 1)
-        depth = (torch.sum(weights * ori_z_vals, dim=-1) + 1e-7) / (weights_sum + 1e-7) # [B, N], in [0, 1] (infinite is 1)
+        depth = torch.sum(weights * ori_z_vals, dim=-1)
 
         # calculate color
         image = torch.sum(weights.unsqueeze(-1) * rgbs, dim=-2) # [B, N, 3], in [0, 1]
