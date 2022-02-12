@@ -414,7 +414,7 @@ void sh_encode_forward(at::Tensor inputs, at::Tensor outputs, const uint32_t B, 
     CHECK_IS_FLOATING(dy_dx);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    inputs.type(), "sh_encode_forward_cuda", ([&] {
+    inputs.scalar_type(), "sh_encode_forward_cuda", ([&] {
 		sh_encode_forward_cuda<scalar_t>(inputs.data_ptr<scalar_t>(), outputs.data_ptr<scalar_t>(), B, D, C, calc_grad_inputs, dy_dx.data_ptr<scalar_t>());
     }));	
 }
@@ -436,7 +436,7 @@ void sh_encode_backward(at::Tensor grad, at::Tensor inputs, const uint32_t B, co
     CHECK_IS_FLOATING(grad_inputs);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    grad.type(), "sh_encode_backward_cuda", ([&] {
+    grad.scalar_type(), "sh_encode_backward_cuda", ([&] {
     	sh_encode_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), inputs.data_ptr<scalar_t>(), B, D, C, dy_dx.data_ptr<scalar_t>(), grad_inputs.data_ptr<scalar_t>());
     }));	
 }

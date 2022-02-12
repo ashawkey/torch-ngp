@@ -1,5 +1,3 @@
-#include <stdint.h>
-
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -11,6 +9,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include <stdint.h>
 #include <cstdio>
 
 
@@ -113,7 +112,7 @@ __global__ void kernel_grid(
     //printf("[b=%d, l=%d] pos=(%f, %f)+(%d, %d)\n", b, level, pos[0], pos[1], pos_grid[0], pos_grid[1]);
 
     // interpolate
-    float results[C] = {0}; // temp results in register
+    scalar_t results[C] = {0}; // temp results in register
 
     #pragma unroll
     for (uint32_t idx = 0; idx < (1 << D); idx++) {
@@ -157,7 +156,7 @@ __global__ void kernel_grid(
         #pragma unroll
         for (uint32_t gd = 0; gd < D; gd++) {
 
-            float results_grad[C] = {0}; // temp
+            scalar_t results_grad[C] = {0};
 
             #pragma unroll
             for (uint32_t idx = 0; idx < (1 << (D - 1)); idx++) {
@@ -257,7 +256,7 @@ __global__ void kernel_grid_backward(
             #pragma unroll
             for (uint32_t c = 0; c < N_C; c += 2) {
                 // process two __half at once (by interpreting as a __half2)
-                __half2 v = {(__half)(grad[c] * w), (__half)(grad[c + 1] * w)};
+                __half2 v = {(__half)(w * grad[c]), (__half)(w * grad[c + 1])};
                 atomicAdd((__half2*)&grad_grid[index + c], v);
             }
         // float, or __half when N_C % 2 != 0
@@ -389,7 +388,7 @@ void hash_encode_forward(const at::Tensor inputs, const at::Tensor embeddings, c
     CHECK_IS_FLOATING(dy_dx);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    inputs.type(), "hash_encode_forward", ([&] {
+    inputs.scalar_type(), "hash_encode_forward", ([&] {
         hash_encode_forward_cuda<scalar_t>(inputs.data_ptr<scalar_t>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), outputs.data_ptr<scalar_t>(), B, D, C, L, S, H, calc_grad_inputs, dy_dx.data_ptr<scalar_t>());
     }));
 }
@@ -420,7 +419,7 @@ void hash_encode_backward(const at::Tensor grad, const at::Tensor inputs, const 
     CHECK_IS_FLOATING(grad_inputs);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    grad.type(), "hash_encode_backward", ([&] {
+    grad.scalar_type(), "hash_encode_backward", ([&] {
         hash_encode_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), inputs.data_ptr<scalar_t>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), grad_embeddings.data_ptr<scalar_t>(), B, D, C, L, S, H, calc_grad_inputs, dy_dx.data_ptr<scalar_t>(), grad_inputs.data_ptr<scalar_t>());
     }));
     

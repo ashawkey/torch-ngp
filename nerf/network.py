@@ -59,8 +59,9 @@ def near_far_from_bound(rays_o, rays_d, bound, type='cube'):
         far = radius + bound
 
     elif type == 'cube':
-        tmin = (-bound - rays_o) / rays_d # [B, N, 3]
-        tmax = (bound - rays_o) / rays_d
+        # TODO: if bound < radius, some rays may not intersect with the bbox.
+        tmin = (-bound - rays_o) / (rays_d + 1e-15) # [B, N, 3]
+        tmax = (bound - rays_o) / (rays_d + 1e-15)
         near = torch.where(tmin < tmax, tmin, tmax).max(dim=-1, keepdim=True)[0]
         far = torch.where(tmin > tmax, tmin, tmax).min(dim=-1, keepdim=True)[0]
         near = torch.clamp(near, min=0.05)

@@ -474,7 +474,7 @@ void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, cons
 
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    rays_o.type(), "generate_points", ([&] {
+    rays_o.scalar_type(), "generate_points", ([&] {
         generate_points_cuda<scalar_t>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, points.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
     }));
 }
@@ -507,7 +507,7 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
     CHECK_IS_FLOATING(bg_color);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    sigmas.type(), "accumulate_rays_forward", ([&] {
+    sigmas.scalar_type(), "accumulate_rays_forward", ([&] {
         accumulate_rays_forward_cuda<scalar_t>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), points.data_ptr<scalar_t>(), bg_color.data_ptr<scalar_t>(), rays.data_ptr<int>(), bound, M, N, depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
     }));
 }
@@ -543,7 +543,7 @@ void accumulate_rays_backward(at::Tensor grad, at::Tensor sigmas, at::Tensor rgb
     CHECK_IS_FLOATING(grad_rgbs);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    grad.type(), "accumulate_rays_backward", ([&] {
+    grad.scalar_type(), "accumulate_rays_backward", ([&] {
         accumulate_rays_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), points.data_ptr<scalar_t>(), rays.data_ptr<int>(), image.data_ptr<scalar_t>(), bound, M, N, grad_sigmas.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
     }));
 }
