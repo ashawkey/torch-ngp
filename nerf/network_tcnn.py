@@ -106,7 +106,7 @@ class NeRFNetwork(nn.Module):
                 "otype": "HashGrid",
                 "n_levels": 16,
                 "n_features_per_level": 2,
-                "log2_hashmap_size": 15,
+                "log2_hashmap_size": 19,
                 "base_resolution": 16,
                 "per_level_scale": 1.3819,
             },
@@ -127,11 +127,11 @@ class NeRFNetwork(nn.Module):
             n_input_dims=3,
             encoding_config={
                 "otype": "SphericalHarmonics",
-                "degree": 4
+                "degree": 4,
             },
         )
 
-        self.in_dim_color = self.encoder_dir.n_output_dims + self.geo_feat_dim + 1 # a manual fixing to make it 32, as done in nerf_network.h#178
+        self.in_dim_color = self.encoder_dir.n_output_dims + self.geo_feat_dim # a manual fixing to make it 32, as done in nerf_network.h#178
 
         self.color_net = tcnn.Network(
             n_input_dims=self.in_dim_color,
@@ -170,11 +170,12 @@ class NeRFNetwork(nn.Module):
         sigma = F.relu(h[..., 0])
         geo_feat = h[..., 1:]
 
-        # color        
+        # color
+        d = (d + 1) / 2 # tcnn SH encoding requires inputs to be in [0, 1]
         d = self.encoder_dir(d)
 
-        p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
-        h = torch.cat([d, geo_feat, p], dim=-1)
+        #p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
+        h = torch.cat([d, geo_feat], dim=-1)
         h = self.color_net(h)
         
         # sigmoid activation for rgb
@@ -259,20 +260,21 @@ class NeRFNetwork(nn.Module):
                 new_pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, t, 3] -> [B, N, t, 3]
                 new_pts = new_pts.clamp(-bound, bound)
             
-            # TODO: TCNN do not support multiple forwards before backward, so must recompute all points at once.
+            # only forward new points to save computation
+            new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
+            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), new_dirs.reshape(B, -1, 3), bound=bound)
+            new_rgbs = new_rgbs.reshape(B, N, upsample_steps, 3) # [B, N, t, 3]
+            new_sigmas = new_sigmas.reshape(B, N, upsample_steps) # [B, N, t]
 
             # re-order
             z_vals = torch.cat([z_vals, new_z_vals], dim=-1) # [B, N, T+t]
             z_vals, z_index = torch.sort(z_vals, dim=-1)
 
-            pts = torch.cat([pts, new_pts], dim=-2)
-            pts = torch.gather(pts, dim=-2, index=z_index.unsqueeze(-1).expand_as(pts))
-            
-            dirs = rays_d.unsqueeze(-2).expand_as(pts)
-            sigmas, rgbs = self(pts.reshape(B, -1, 3), dirs.reshape(B, -1, 3), bound=bound)
-            rgbs = rgbs.reshape(B, N, -1, 3) # [B, N, T+t, 3]
-            sigmas = sigmas.reshape(B, N, -1) # [B, N, T+t]
-            
+            sigmas = torch.cat([sigmas, new_sigmas], dim=-1) # [B, N, T+t]
+            sigmas = torch.gather(sigmas, dim=-1, index=z_index)
+
+            rgbs = torch.cat([rgbs, new_rgbs], dim=-2) # [B, N, T+t, 3]
+            rgbs = torch.gather(rgbs, dim=-2, index=z_index.unsqueeze(-1).expand_as(rgbs))
 
         ### render core
         deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]

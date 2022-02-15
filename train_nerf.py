@@ -34,8 +34,6 @@ if __name__ == '__main__':
         assert opt.fp16, "fully-fused mode must be used with fp16 mode"
         from nerf.network_ff import NeRFNetwork
     elif opt.tcnn:
-        if opt.upsample_steps > 0:
-            print('[WARNING] TCNN with upsample_steps > 0 will be slower due to the current upsampling method in rendering.')
         from nerf.network_tcnn import NeRFNetwork
     else:
         from nerf.network import NeRFNetwork
