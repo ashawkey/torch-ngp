@@ -280,7 +280,7 @@ class Trainer(object):
             gt_rgb = images
 
         outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, **self.conf)
-            
+    
         pred_rgb = outputs['rgb']
 
         loss = self.criterion(pred_rgb, gt_rgb)
@@ -472,18 +472,11 @@ class Trainer(object):
             self.optimizer.zero_grad()
 
             with torch.cuda.amp.autocast(enabled=self.fp16):
-
-                #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
                 preds, truths, loss = self.train_step(data)
-                #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
-
-            #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
          
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-        
-            #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
             
             if self.ema is not None:
                 self.ema.update()

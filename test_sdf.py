@@ -1,5 +1,3 @@
-from sdf.netowrk import SDFNetwork
-from sdf.netowrk_ff import SDFNetwork as SDFNetwork_FF
 from sdf.utils import *
 
 import argparse
@@ -13,18 +11,21 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
+    parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
 
     opt = parser.parse_args()
 
     if opt.ff:
         assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        Network = SDFNetwork_FF
+        from sdf.netowrk_ff import SDFNetwork
+    elif opt.tcnn:
+        from sdf.network_tcnn import SDFNetwork        
     else:
-        Network = SDFNetwork
+        from sdf.netowrk import SDFNetwork
+
     seed_everything(opt.seed)
 
-    model = Network(encoding="hashgrid")
-    #model = SDFNetwork(encoding="frequency", num_layers=8, skips=[4], hidden_dim=256, clip_sdf=CLIP_SDF)
+    model = SDFNetwork(encoding="hashgrid")
 
     print(model)
 

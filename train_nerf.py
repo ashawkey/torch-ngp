@@ -1,7 +1,5 @@
 import torch
 
-from nerf.network import NeRFNetwork
-from nerf.network_ff import NeRFNetwork as NeRFNetwork_FF
 from nerf.provider import NeRFDataset
 from nerf.utils import *
 
@@ -21,6 +19,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_ray_batch', type=int, default=4096)
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
+    parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
     
     parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-size, size)")
@@ -33,9 +32,13 @@ if __name__ == '__main__':
 
     if opt.ff:
         assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        Network = NeRFNetwork_FF
+        from nerf.network_ff import NeRFNetwork
+    elif opt.tcnn:
+        if opt.upsample_steps > 0:
+            print('[WARNING] TCNN with upsample_steps > 0 will be slower due to the current upsampling method in rendering.')
+        from nerf.network_tcnn import NeRFNetwork
     else:
-        Network = NeRFNetwork
+        from nerf.network import NeRFNetwork
 
     seed_everything(opt.seed)
 
@@ -45,7 +48,7 @@ if __name__ == '__main__':
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
     
-    model = Network(
+    model = NeRFNetwork(
         encoding="hashgrid", encoding_dir="sphere_harmonics", 
         num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
         density_grid_size=128 if opt.cuda_raymarching else -1,
@@ -58,8 +61,7 @@ if __name__ == '__main__':
     criterion = torch.nn.SmoothL1Loss()
 
     optimizer = lambda model: torch.optim.Adam([
-        {'name': 'encoding', 'params': list(model.encoder.parameters())},
-        {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
+        {'name': 'net', 'params': model.parameters(), 'weight_decay': 1e-6},
     ], lr=1e-2, betas=(0.9, 0.99), eps=1e-15)
 
     scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150], gamma=0.33)

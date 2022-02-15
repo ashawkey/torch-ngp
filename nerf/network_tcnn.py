@@ -6,8 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from encoding import get_encoder
-from ffmlp import FFMLP
+import tinycudann as tcnn
 
 import raymarching
 
@@ -84,8 +83,8 @@ def plot_pointcloud(pc, color=None):
 # NeRF-SH
 class NeRFNetwork(nn.Module):
     def __init__(self,
-                 encoding="hashgrid",
-                 encoding_dir="sphere_harmonics",
+                 encoding="HashGrid",
+                 encoding_dir="SphericalHarmonics",
                  num_layers=2,
                  hidden_dim=64,
                  geo_feat_dim=15,
@@ -99,26 +98,51 @@ class NeRFNetwork(nn.Module):
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.geo_feat_dim = geo_feat_dim
-        self.encoder, self.in_dim = get_encoder(encoding)
 
-        self.sigma_net = FFMLP(
-            input_dim=self.in_dim, 
-            output_dim=1 + self.geo_feat_dim,
-            hidden_dim=self.hidden_dim,
-            num_layers=self.num_layers,
+        self.sigma_net = tcnn.NetworkWithInputEncoding(
+            n_input_dims=3,
+            n_output_dims=1 + self.geo_feat_dim,
+            encoding_config={
+                "otype": "HashGrid",
+                "n_levels": 16,
+                "n_features_per_level": 2,
+                "log2_hashmap_size": 15,
+                "base_resolution": 16,
+                "per_level_scale": 1.3819,
+            },
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": hidden_dim,
+                "n_hidden_layers": num_layers - 1,
+            },
         )
 
         # color network
         self.num_layers_color = num_layers_color        
         self.hidden_dim_color = hidden_dim_color
-        self.encoder_dir, self.in_dim_color = get_encoder(encoding_dir)
-        self.in_dim_color += self.geo_feat_dim + 1 # a manual fixing to make it 32, as done in nerf_network.h#178
-        
-        self.color_net = FFMLP(
-            input_dim=self.in_dim_color, 
-            output_dim=3,
-            hidden_dim=self.hidden_dim_color,
-            num_layers=self.num_layers_color,
+
+        self.encoder_dir = tcnn.Encoding(
+            n_input_dims=3,
+            encoding_config={
+                "otype": "SphericalHarmonics",
+                "degree": 4
+            },
+        )
+
+        self.in_dim_color = self.encoder_dir.n_output_dims + self.geo_feat_dim + 1 # a manual fixing to make it 32, as done in nerf_network.h#178
+
+        self.color_net = tcnn.Network(
+            n_input_dims=self.in_dim_color,
+            n_output_dims=3,
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": hidden_dim_color,
+                "n_hidden_layers": num_layers_color - 1,
+            },
         )
 
         # density grid
@@ -140,7 +164,7 @@ class NeRFNetwork(nn.Module):
         d = d.reshape(-1, 3)
 
         # sigma
-        x = self.encoder(x, size=bound)
+        x = (x + bound) / (2 * bound) # to [0, 1]
         h = self.sigma_net(x)
 
         sigma = F.relu(h[..., 0])
@@ -167,7 +191,7 @@ class NeRFNetwork(nn.Module):
         prefix = x.shape[:-1]
         x = x.reshape(-1, 3)
 
-        x = self.encoder(x, size=bound)
+        x = (x + bound) / (2 * bound) # to [0, 1]
         h = self.sigma_net(x)
 
         #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
@@ -234,22 +258,21 @@ class NeRFNetwork(nn.Module):
 
                 new_pts = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(-1) # [B, N, 1, 3] * [B, N, t, 3] -> [B, N, t, 3]
                 new_pts = new_pts.clamp(-bound, bound)
-
-            # only forward new points to save computation
-            new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
-            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), new_dirs.reshape(B, -1, 3), bound=bound)
-            new_rgbs = new_rgbs.reshape(B, N, upsample_steps, 3) # [B, N, t, 3]
-            new_sigmas = new_sigmas.reshape(B, N, upsample_steps) # [B, N, t]
+            
+            # TODO: TCNN do not support multiple forwards before backward, so must recompute all points at once.
 
             # re-order
             z_vals = torch.cat([z_vals, new_z_vals], dim=-1) # [B, N, T+t]
             z_vals, z_index = torch.sort(z_vals, dim=-1)
 
-            sigmas = torch.cat([sigmas, new_sigmas], dim=-1) # [B, N, T+t]
-            sigmas = torch.gather(sigmas, dim=-1, index=z_index)
-
-            rgbs = torch.cat([rgbs, new_rgbs], dim=-2) # [B, N, T+t, 3]
-            rgbs = torch.gather(rgbs, dim=-2, index=z_index.unsqueeze(-1).expand_as(rgbs))
+            pts = torch.cat([pts, new_pts], dim=-2)
+            pts = torch.gather(pts, dim=-2, index=z_index.unsqueeze(-1).expand_as(pts))
+            
+            dirs = rays_d.unsqueeze(-2).expand_as(pts)
+            sigmas, rgbs = self(pts.reshape(B, -1, 3), dirs.reshape(B, -1, 3), bound=bound)
+            rgbs = rgbs.reshape(B, N, -1, 3) # [B, N, T+t, 3]
+            sigmas = sigmas.reshape(B, N, -1) # [B, N, T+t]
+            
 
         ### render core
         deltas = z_vals[:, :, 1:] - z_vals[:, :, :-1] # [B, N, T-1]

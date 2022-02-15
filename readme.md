@@ -2,7 +2,7 @@
 
 A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 
-**Note**: This repo is far from **instant** (see [here](https://github.com/ashawkey/torch-ngp/issues/3)), and is still a work in progress.
+**Note**: The NeRF performance is far from **instant** due to current naive raymarching implementation (see [here](https://github.com/ashawkey/torch-ngp/issues/3)).
 
 SDF | NeRF
 :---: | :---:
@@ -10,13 +10,15 @@ SDF | NeRF
 
 # Progress
 
+As the official pytorch extension [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) has been released, the following implementations can be used as alternatives. 
+The performance and speed of these modules are guaranteed to be on-par, and we support using tinycudann as the backbone by the `--tcnn` flag.
+Later development will be focused on reproducing the NeRF inference speed.
+
 * Fully-fused MLP
-    - [x] basic pytorch binding of the [original implementation](https://github.com/NVlabs/tiny-cuda-nn) (but only slightly faster than pytorch built-in FP16, which seems to use CUTLASS ...)
-    - [ ] further benchmark
+    - [x] basic pytorch binding of the [original implementation](https://github.com/NVlabs/tiny-cuda-nn)
 * HashGrid Encoder
     - [x] basic pytorch CUDA extension
     - [x] fp16 support 
-    - [ ] improve performance
 * Experiments
     - SDF
         - [x] baseline
@@ -26,6 +28,7 @@ SDF | NeRF
         - [ ] ray marching in CUDA.
 
 # News
+* 2.15: add the official [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) as an alternative backend.    
 * 2.10: add cuda_raymarching, can train/infer faster, but performance is worse currently.
 * 2.6: add support for RGBA image.
 * 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
@@ -56,6 +59,7 @@ bash scripts/run_nerf.sh
 
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf # fp32 mode
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # fp16 mode + fully-fused MLP
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_raymarching # (experimental) fp16 mode + fully-fused MLP + cuda raymarching
 

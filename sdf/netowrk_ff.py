@@ -22,7 +22,7 @@ class SDFNetwork(nn.Module):
         self.hidden_dim = hidden_dim
         self.clip_sdf = clip_sdf
         
-        assert self.skips == [], 'FFMLP do not support concatenating inside, please use skips=[].'
+        assert self.skips == [], 'FFMLP does not support concatenating inside, please use skips=[].'
 
         self.encoder, self.in_dim = get_encoder(encoding)
 

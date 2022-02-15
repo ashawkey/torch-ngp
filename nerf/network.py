@@ -389,7 +389,7 @@ class NeRFNetwork(nn.Module):
         print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}')
 
 
-    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=256000, bg_color=None, **kwargs):
+    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=4096, bg_color=None, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
 

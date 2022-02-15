@@ -1,7 +1,5 @@
 import torch
 
-from sdf.netowrk import SDFNetwork
-from sdf.netowrk_ff import SDFNetwork as SDFNetwork_FF
 from sdf.provider import SDFDataset
 from sdf.utils import *
 
@@ -17,14 +15,18 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
+    parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
 
     opt = parser.parse_args()
 
     if opt.ff:
         assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        Network = SDFNetwork_FF
+        from sdf.netowrk_ff import SDFNetwork
+    elif opt.tcnn:
+        from sdf.network_tcnn import SDFNetwork        
     else:
-        Network = SDFNetwork
+        from sdf.netowrk import SDFNetwork
+
     seed_everything(opt.seed)
 
     train_dataset = SDFDataset(opt.path, size=100, num_samples=2**18)
@@ -33,17 +35,14 @@ if __name__ == '__main__':
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
 
-    model = Network(encoding="hashgrid")
-    #model = SDFNetwork(encoding="frequency", num_layers=8, skips=[4], hidden_dim=256)
+    model = SDFNetwork(encoding="hashgrid")
 
     print(model)
 
     criterion = mape_loss # torch.nn.L1Loss()
 
-    #optimizer = lambda model: torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.99), weight_decay=1e-6, eps=1e-15)
     optimizer = lambda model: torch.optim.Adam([
-        {'name': 'encoding', 'params': model.encoder.parameters()},
-        {'name': 'net', 'params': model.backbone.parameters(), 'weight_decay': 1e-6},
+        {'name': 'net', 'params': model.parameters(), 'weight_decay': 1e-6},
     ], lr=1e-4, betas=(0.9, 0.99), eps=1e-15)
 
     scheduler = lambda optimizer: optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
