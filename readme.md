@@ -10,7 +10,7 @@ SDF | NeRF
 
 # Progress
 
-As the official pytorch extension [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) has been released, the following implementations can be used as alternatives. 
+As the official pytorch extension [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) has been released, the following implementations can be used as modular alternatives. 
 The performance and speed of these modules are guaranteed to be on-par, and we support using tinycudann as the backbone by the `--tcnn` flag.
 Later development will be focused on reproducing the NeRF inference speed.
 
@@ -63,4 +63,34 @@ python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --tc
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # fp16 mode + fully-fused MLP
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_raymarching # (experimental) fp16 mode + fully-fused MLP + cuda raymarching
 
+```
+
+# Acknowledgement
+
+* Credits to [Thomas Müller](https://tom94.net/) for the amazing [tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn) and [instant-ngp](https://github.com/NVlabs/instant-ngp).
+```
+@misc{tiny-cuda-nn,
+    Author = {Thomas M\"uller},
+    Year = {2021},
+    Note = {https://github.com/nvlabs/tiny-cuda-nn},
+    Title = {Tiny {CUDA} Neural Network Framework}
+}
+
+@article{mueller2022instant,
+    title = {Instant Neural Graphics Primitives with a Multiresolution Hash Encoding},
+    author = {Thomas M\"uller and Alex Evans and Christoph Schied and Alexander Keller},
+    journal = {arXiv:2201.05989},
+    year = {2022},
+    month = jan
+}
+```
+
+* The framework of NeRF is adapted from [nerf_pl](https://github.com/kwea123/nerf_pl)
+```
+@misc{queianchen_nerf,
+  author={Quei-An, Chen},
+  title={Nerf_pl: a pytorch-lightning implementation of NeRF},
+  url={https://github.com/kwea123/nerf_pl/},
+  year={2020},
+}
 ```
