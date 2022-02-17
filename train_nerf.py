@@ -59,7 +59,8 @@ if __name__ == '__main__':
     criterion = torch.nn.SmoothL1Loss()
 
     optimizer = lambda model: torch.optim.Adam([
-        {'name': 'net', 'params': model.parameters(), 'weight_decay': 1e-6},
+        {'name': 'encoding', 'params': list(model.encoder.parameters())},
+        {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
     ], lr=1e-2, betas=(0.9, 0.99), eps=1e-15)
 
     scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150], gamma=0.33)

@@ -67,7 +67,7 @@ python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff
 
 # Acknowledgement
 
-* Credits to [Thomas Müller](https://tom94.net/) for the amazing [tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn) and [instant-ngp](https://github.com/NVlabs/instant-ngp).
+* Credits to [Thomas Müller](https://tom94.net/) for the amazing [tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn) and [instant-ngp](https://github.com/NVlabs/instant-ngp):
     ```
     @misc{tiny-cuda-nn,
         Author = {Thomas M\"uller},
@@ -85,12 +85,12 @@ python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff
     }
     ```
 
-* The framework of NeRF is adapted from [nerf_pl](https://github.com/kwea123/nerf_pl)
+* The framework of NeRF is adapted from [nerf_pl](https://github.com/kwea123/nerf_pl):
     ```
     @misc{queianchen_nerf,
-        author={Quei-An, Chen},
-        title={Nerf_pl: a pytorch-lightning implementation of NeRF},
-        url={https://github.com/kwea123/nerf_pl/},
-        year={2020},
+        author = {Quei-An, Chen},
+        title = {Nerf_pl: a pytorch-lightning implementation of NeRF},
+        url = {https://github.com/kwea123/nerf_pl/},
+        year = {2020},
     }
     ```

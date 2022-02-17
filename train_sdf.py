@@ -42,7 +42,8 @@ if __name__ == '__main__':
     criterion = mape_loss # torch.nn.L1Loss()
 
     optimizer = lambda model: torch.optim.Adam([
-        {'name': 'net', 'params': model.parameters(), 'weight_decay': 1e-6},
+        {'name': 'encoding', 'params': model.encoder.parameters()},
+        {'name': 'net', 'params': model.backbone.parameters(), 'weight_decay': 1e-6},
     ], lr=1e-4, betas=(0.9, 0.99), eps=1e-15)
 
     scheduler = lambda optimizer: optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)

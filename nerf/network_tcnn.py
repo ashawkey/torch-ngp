@@ -99,9 +99,8 @@ class NeRFNetwork(nn.Module):
         self.hidden_dim = hidden_dim
         self.geo_feat_dim = geo_feat_dim
 
-        self.sigma_net = tcnn.NetworkWithInputEncoding(
+        self.encoder = tcnn.Encoding(
             n_input_dims=3,
-            n_output_dims=1 + self.geo_feat_dim,
             encoding_config={
                 "otype": "HashGrid",
                 "n_levels": 16,
@@ -110,6 +109,11 @@ class NeRFNetwork(nn.Module):
                 "base_resolution": 16,
                 "per_level_scale": 1.3819,
             },
+        )
+
+        self.sigma_net = tcnn.Network(
+            n_input_dims=32,
+            n_output_dims=1 + self.geo_feat_dim,
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
@@ -131,7 +135,7 @@ class NeRFNetwork(nn.Module):
             },
         )
 
-        self.in_dim_color = self.encoder_dir.n_output_dims + self.geo_feat_dim # a manual fixing to make it 32, as done in nerf_network.h#178
+        self.in_dim_color = self.encoder_dir.n_output_dims + self.geo_feat_dim
 
         self.color_net = tcnn.Network(
             n_input_dims=self.in_dim_color,
@@ -165,6 +169,7 @@ class NeRFNetwork(nn.Module):
 
         # sigma
         x = (x + bound) / (2 * bound) # to [0, 1]
+        x = self.encoder(x)
         h = self.sigma_net(x)
 
         sigma = F.relu(h[..., 0])
@@ -193,6 +198,7 @@ class NeRFNetwork(nn.Module):
         x = x.reshape(-1, 3)
 
         x = (x + bound) / (2 * bound) # to [0, 1]
+        x = self.encoder(x)
         h = self.sigma_net(x)
 
         #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
