@@ -42,7 +42,6 @@ def lift(x, y, z, intrinsics):
 
     device = x.device
     
-    intrinsics = intrinsics.to(device)
     fx = intrinsics[..., 0, 0].unsqueeze(-1)
     fy = intrinsics[..., 1, 1].unsqueeze(-1)
     cx = intrinsics[..., 0, 2].unsqueeze(-1)
@@ -53,7 +52,7 @@ def lift(x, y, z, intrinsics):
     y_lift = (y - cy) / fy * z
 
     # homogeneous
-    return torch.stack((x_lift, y_lift, z, torch.ones_like(z).to(device)), dim=-1)
+    return torch.stack((x_lift, y_lift, z, torch.ones_like(z)), dim=-1)
 
 
 def get_rays(c2w, intrinsics, H, W, N_rays=-1):
@@ -66,22 +65,22 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     rays_o = c2w[..., :3, 3] # [B, 3]
     prefix = c2w.shape[:-2]
 
-    i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing='ij') # for torch < 1.10, should remove indexing='ij'
-    i = i.t().to(device).reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
-    j = j.t().to(device).reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
+    i, j = torch.meshgrid(torch.linspace(0, W-1, W, device=device), torch.linspace(0, H-1, H, device=device), indexing='ij') # for torch < 1.10, should remove indexing='ij'
+    i = i.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
+    j = j.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
 
     if N_rays > 0:
         N_rays = min(N_rays, H*W)
-        select_hs = torch.randint(0, H, size=[N_rays]).to(device)
-        select_ws = torch.randint(0, W, size=[N_rays]).to(device)
+        select_hs = torch.randint(0, H, size=[N_rays], device=device)
+        select_ws = torch.randint(0, W, size=[N_rays], device=device)
         select_inds = select_hs * W + select_ws
         select_inds = select_inds.expand([*prefix, N_rays])
         i = torch.gather(i, -1, select_inds)
         j = torch.gather(j, -1, select_inds)
     else:
-        select_inds = torch.arange(H*W).to(device).expand([*prefix, H*W])
+        select_inds = torch.arange(H*W, device=device).expand([*prefix, H*W])
 
-    pixel_points_cam = lift(i, j, torch.ones_like(i).to(device), intrinsics=intrinsics)
+    pixel_points_cam = lift(i, j, torch.ones_like(i), intrinsics=intrinsics)
     pixel_points_cam = pixel_points_cam.transpose(-1, -2)
 
     world_coords = torch.bmm(c2w, pixel_points_cam).transpose(-1, -2)[..., :3]

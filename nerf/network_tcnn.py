@@ -221,7 +221,7 @@ class NeRFNetwork(nn.Module):
 
         #print(f'near = {near.min().item()} ~ {near.max().item()}, far = {far.min().item()} ~ {far.max().item()}')
 
-        z_vals = torch.linspace(0.0, 1.0, num_steps).unsqueeze(0).unsqueeze(0).to(device) # [1, 1, T]
+        z_vals = torch.linspace(0.0, 1.0, num_steps, device=device).unsqueeze(0).unsqueeze(0) # [1, 1, T]
         z_vals = z_vals.expand((B, N, num_steps)) # [B, N, T]
         z_vals = near + (far - near) * z_vals # [B, N, T], in [near, far]
 

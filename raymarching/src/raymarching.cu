@@ -477,6 +477,9 @@ void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, cons
     rays_o.scalar_type(), "generate_points", ([&] {
         generate_points_cuda<scalar_t>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, points.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
     }));
+    
+    // resize in c++ 
+    points.resize_({counter[0].item().to<int64_t>(), points.size(1)});
 }
 
 

@@ -33,10 +33,11 @@ class _generate_points(Function):
         
         _backend.generate_points(rays_o, rays_d, density_grid, mean_density, iter_density, bound, N, H, M, points, rays, counter, perturb) # m is the actually used points number
 
-        m = counter[0].item()
-        points = points[:m]
+        # inplace resize 
+        # TODO: this cause D2H copy... should avoid...
+        #points.resize_(counter[0], 7)
 
-        #print(f"generated points count m = {m} << {M}, mean points per ray = {m / N:.2f}")
+        #print(f"generated points count m = {counter[0]} << {M}")
 
         return points, rays
 
