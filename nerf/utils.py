@@ -319,7 +319,7 @@ class Trainer(object):
         B = poses.shape[0]
         rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
         outputs = self.model.render(rays_o, rays_d, staged=True, **self.conf)
-        pred_rgb = outputs['rgb'].reshape(B, H, W, 3)
+        pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
         return pred_rgb, pred_depth
@@ -389,11 +389,6 @@ class Trainer(object):
         
         self.log(f"==> Start Test, save results to {save_path}")
 
-        # update grid
-        if self.model.density_grid is not None:
-            with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_density_grid(self.conf['bound'])
-
         pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
         self.model.eval()
         with torch.no_grad():
@@ -447,9 +442,9 @@ class Trainer(object):
         self.model.train()
 
         # update grid
-        if self.model.density_grid is not None:
+        if self.model.cuda_raymarching:
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_density_grid(self.conf['bound'])
+                self.model.update_extra_state(self.conf['bound'])
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
@@ -614,6 +609,10 @@ class Trainer(object):
             'stats': self.stats,
         }
 
+        if self.model.cuda_raymarching:
+            state['mean_count'] = self.model.mean_count
+            state['mean_density'] = self.model.mean_density
+
         if full:
             state['optimizer'] = self.optimizer.state_dict()
             state['lr_scheduler'] = self.lr_scheduler.state_dict()
@@ -685,6 +684,10 @@ class Trainer(object):
 
         self.stats = checkpoint_dict['stats']
         self.epoch = checkpoint_dict['epoch']
+
+        if self.model.cuda_raymarching:
+            self.model.mean_count = checkpoint_dict['mean_count']
+            self.model.mean_density = checkpoint_dict['mean_density']
         
         if self.optimizer and  'optimizer' in checkpoint_dict:
             try:

@@ -49,7 +49,7 @@ if __name__ == '__main__':
     model = NeRFNetwork(
         encoding="hashgrid", encoding_dir="sphere_harmonics", 
         num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
-        density_grid_size=128 if opt.cuda_raymarching else -1,
+        cuda_raymarching=opt.cuda_raymarching,
     )
 
     #model = NeRFNetwork(encoding="frequency", encoding_dir="frequency", num_layers=4, hidden_dim=256, geo_feat_dim=256, num_layers_color=4, hidden_dim_color=128)

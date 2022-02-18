@@ -54,7 +54,7 @@ __global__ void kernel_generate_points(
     const int iter_density,
     const float bound,
     const uint32_t N, const uint32_t H, const uint32_t M,
-    scalar_t * points,
+    scalar_t * xyzs, scalar_t * dirs, scalar_t * deltas,
     int * rays,
     int * counter,
     const bool perturb
@@ -63,7 +63,7 @@ __global__ void kernel_generate_points(
     const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
     if (n >= N) return;
     
-    const uint32_t max_steps = M / N; // fixed to 1024
+    const uint32_t max_steps = 512; // M / N;
     const float rbound = 1 / bound;
 
     const float density_thresh = fminf(DENSITY_THRESH(), mean_density);
@@ -97,50 +97,6 @@ __global__ void kernel_generate_points(
 
     const float t0 = near; //  + dt_small * rng.next_float();
 
-    // if iter_density too low (thus grid is unreliable), only generate coarse points.
-    //if (iter_density < 50) {
-    // if (false) {
-
-    //     uint32_t num_steps = H - 1;
-
-    //     uint32_t point_index = atomicAdd(counter, num_steps);
-    //     uint32_t ray_index = atomicAdd(counter + 1, 1);
-
-    //     if (point_index + num_steps > M) return;
-
-    //     points += point_index * 7;
-
-    //     // write rays
-    //     rays[ray_index * 3] = n;
-    //     rays[ray_index * 3 + 1] = point_index;
-    //     rays[ray_index * 3 + 2] = num_steps;
-
-    //     float t = t0;
-    //     float last_t = t;
-    //     uint32_t step = 0;
-
-    //     while (t <= far && step < num_steps) {
-    //         // current point
-    //         const float x = ox + t * dx;
-    //         const float y = oy + t * dy;
-    //         const float z = oz + t * dz;            
-    //         // write step
-    //         points[0] = x;
-    //         points[1] = y;
-    //         points[2] = z;
-    //         points[3] = dx;
-    //         points[4] = dy;
-    //         points[5] = dz;
-    //         step++;
-    //         t += dt_large * rng.next_float() * 2; // random perturb
-    //         points[6] = t - last_t; 
-    //         points += 7;
-    //         last_t = t;
-    //     }
-    //     return;
-    // }
-
-    // else use two passes to generate fine samples
     // first pass: estimation of num_steps
     float t = t0;
     uint32_t num_steps = 0;
@@ -183,10 +139,11 @@ __global__ void kernel_generate_points(
     //printf("[n=%d] num_steps=%d\n", n, num_steps);
     //printf("[n=%d] num_steps=%d, pc=%d, rc=%d\n", n, num_steps, counter[0], counter[1]);
 
+
     // second pass: really locate and write points & dirs
     uint32_t point_index = atomicAdd(counter, num_steps);
     uint32_t ray_index = atomicAdd(counter + 1, 1);
-
+    
     //printf("[n=%d] num_steps=%d, point_index=%d, ray_index=%d\n", n, num_steps, point_index, ray_index);
 
     // write rays
@@ -195,9 +152,11 @@ __global__ void kernel_generate_points(
     rays[ray_index * 3 + 2] = num_steps;
 
     if (num_steps == 0) return;
-    if (point_index + num_steps > M) return;
+    if (point_index + num_steps >= M) return;
 
-    points += point_index * 7;
+    xyzs += point_index * 3;
+    dirs += point_index * 3;
+    deltas += point_index;
 
     t = t0;
     dt = dt_small;
@@ -223,23 +182,26 @@ __global__ void kernel_generate_points(
         // if occpuied, advance a small step, and write to output
         if (density > density_thresh) {
             // write step
-            points[0] = x;
-            points[1] = y;
-            points[2] = z;
-            points[3] = dx;
-            points[4] = dy;
-            points[5] = dz;
+            xyzs[0] = x;
+            xyzs[1] = y;
+            xyzs[2] = z;
+            dirs[0] = dx;
+            dirs[1] = dy;
+            dirs[2] = dz;
             step++;
             dt = fminf(dt * dt_gamma, dt_large);
             if (perturb) {
                 const float p_dt = dt * rng.next_float() * 2;
                 t += p_dt;
-                points[6] = p_dt;
+                deltas[0] = p_dt;
             } else {
                 t += dt;
-                points[6] = dt;
+                deltas[0] = dt;
             }
-            points += 7;
+            xyzs += 3;
+            dirs += 3;
+            deltas++;
+
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
@@ -255,13 +217,13 @@ __global__ void kernel_generate_points(
 
 // rays_o/d: [N, 3]
 // grid: [H, H, H]
-// points: [M, 3]
+// xyzs, dirs, deltas: [M, 3], [M, 3], [M]
 // dirs: [M, 3]
 // rays: [N, 3], idx, offset, num_steps
 template <typename scalar_t>
-void generate_points_cuda(const scalar_t *rays_o, const scalar_t *rays_d, const scalar_t *grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, scalar_t *points, int *rays, int *counter, const bool perturb) {
+void generate_points_cuda(const scalar_t *rays_o, const scalar_t *rays_d, const scalar_t *grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, scalar_t *xyzs, scalar_t *dirs, scalar_t *deltas, int *rays, int *counter, const bool perturb) {
     static constexpr uint32_t N_THREAD = 256;
-    kernel_generate_points<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o, rays_d, grid, mean_density, iter_density, bound, N, H, M, points, rays, counter, perturb);
+    kernel_generate_points<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o, rays_d, grid, mean_density, iter_density, bound, N, H, M, xyzs, dirs, deltas, rays, counter, perturb);
 }
 
 
@@ -269,7 +231,7 @@ template <typename scalar_t>
 __global__ void kernel_accumulate_rays_forward(
     const scalar_t * __restrict__ sigmas,
     const scalar_t * __restrict__ rgbs,  
-    const scalar_t * __restrict__ points,
+    const scalar_t * __restrict__ deltas,
     const scalar_t * __restrict__ bg_color,
     const int * __restrict__ rays,
     const float bound,
@@ -286,9 +248,18 @@ __global__ void kernel_accumulate_rays_forward(
     uint32_t offset = rays[n * 3 + 1];
     uint32_t num_steps = rays[n * 3 + 2];
 
+    // empty ray, or ray that exceed max step count.
+    if (num_steps == 0 || offset + num_steps >= M) {
+        depth[index] = 0;
+        image[index * 3] = bg_color[0];
+        image[index * 3 + 1] = bg_color[1];
+        image[index * 3 + 2] = bg_color[2];
+        return;
+    }
+
     sigmas += offset;
     rgbs += offset * 3;
-    points += offset * 7;
+    deltas += offset;
 
     // accumulate 
     uint32_t step = 0;
@@ -302,7 +273,7 @@ __global__ void kernel_accumulate_rays_forward(
         if (T < 1e-4f) break;
 
         const scalar_t sigma = sigmas[0];
-        const scalar_t delta = points[6];
+        const scalar_t delta = deltas[0];
         const scalar_t rr = rgbs[0], gg = rgbs[1], bb = rgbs[2];
         const scalar_t alpha = 1.0f - __expf(- sigma * delta);
         const scalar_t weight = alpha * T;
@@ -320,7 +291,7 @@ __global__ void kernel_accumulate_rays_forward(
         // locate
         sigmas++;
         rgbs += 3;
-        points += 7;
+        deltas++;
 
         step++;
     }
@@ -345,15 +316,15 @@ __global__ void kernel_accumulate_rays_forward(
 
 // sigmas: [M]
 // rgbs: [M, 3]
-// points: [M, 7]
+// deltas: [M]
 // bg_color: [3]
 // rays: [N, 3], idx, offset, num_steps
 // depth: [N]
 // image: [N, 3]
 template <typename scalar_t>
-void accumulate_rays_forward_cuda(const scalar_t *sigmas, const scalar_t *rgbs, const scalar_t *points, const scalar_t *bg_color, const int *rays, const float bound, const uint32_t M, const uint32_t N, scalar_t *depth, scalar_t *image) {
+void accumulate_rays_forward_cuda(const scalar_t *sigmas, const scalar_t *rgbs, const scalar_t *deltas, const scalar_t *bg_color, const int *rays, const float bound, const uint32_t M, const uint32_t N, scalar_t *depth, scalar_t *image) {
     static constexpr uint32_t N_THREAD = 256;
-    kernel_accumulate_rays_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(sigmas, rgbs, points, bg_color, rays, bound, M, N, depth, image);
+    kernel_accumulate_rays_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(sigmas, rgbs, deltas, bg_color, rays, bound, M, N, depth, image);
 }
 
 
@@ -362,7 +333,7 @@ __global__ void kernel_accumulate_rays_backward(
     const scalar_t * __restrict__ grad,
     const scalar_t * __restrict__ sigmas,
     const scalar_t * __restrict__ rgbs,  
-    const scalar_t * __restrict__ points,  
+    const scalar_t * __restrict__ deltas,  
     const int * __restrict__ rays,
     const scalar_t * __restrict__ image,  
     const float bound,
@@ -379,11 +350,13 @@ __global__ void kernel_accumulate_rays_backward(
     uint32_t offset = rays[n * 3 + 1];
     uint32_t num_steps = rays[n * 3 + 2];
 
+    if (num_steps == 0 || offset + num_steps >= M) return;
+
     grad += index * 3;
     image += index * 3;
     sigmas += offset;
     rgbs += offset * 3;
-    points += offset * 7;
+    deltas += offset;
     grad_sigmas += offset;
     grad_rgbs += offset * 3;
 
@@ -399,7 +372,7 @@ __global__ void kernel_accumulate_rays_backward(
         if (T < 1e-4f) break;
 
         const scalar_t sigma = sigmas[0];
-        const scalar_t delta = points[6];
+        const scalar_t delta = deltas[0];
         const scalar_t rr = rgbs[0], gg = rgbs[1], bb = rgbs[2];
         const scalar_t alpha = 1.0f - __expf(- sigma * delta);
         const scalar_t weight = alpha * T;
@@ -426,7 +399,7 @@ __global__ void kernel_accumulate_rays_backward(
         rgbs += 3;
         grad_sigmas++;
         grad_rgbs += 3;
-        points += 7;
+        deltas++;
 
         step++;
     }
@@ -436,58 +409,43 @@ __global__ void kernel_accumulate_rays_backward(
 // grad: [N, 3]
 // sigmas: [M]
 // rgbs: [M, 3]
-// points: [M, 7]
+// deltas: [M]
 // rays: [N, 3], idx, offset, num_steps
 // image: [N, 3]
 // grad_sigmas: [M]
 // grad_rgbs: [M, 3]
 template <typename scalar_t>
-void accumulate_rays_backward_cuda(const scalar_t *grad, const scalar_t *sigmas, const scalar_t *rgbs, const scalar_t *points, const int *rays, const scalar_t *image, const float bound, const uint32_t M, const uint32_t N, scalar_t *grad_sigmas, scalar_t *grad_rgbs) {
+void accumulate_rays_backward_cuda(const scalar_t *grad, const scalar_t *sigmas, const scalar_t *rgbs, const scalar_t *deltas, const int *rays, const scalar_t *image, const float bound, const uint32_t M, const uint32_t N, scalar_t *grad_sigmas, scalar_t *grad_rgbs) {
     static constexpr uint32_t N_THREAD = 256;
-    kernel_accumulate_rays_backward<<<div_round_up(N, N_THREAD), N_THREAD>>>(grad, sigmas, rgbs, points, rays, image, bound, M, N, grad_sigmas, grad_rgbs);
+    kernel_accumulate_rays_backward<<<div_round_up(N, N_THREAD), N_THREAD>>>(grad, sigmas, rgbs, deltas, rays, image, bound, M, N, grad_sigmas, grad_rgbs);
 }
 
 
-
-
-void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, at::Tensor points, at::Tensor rays, at::Tensor counter, const bool perturb) {
+void generate_points(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, const bool perturb) {
     CHECK_CUDA(rays_o);
     CHECK_CUDA(rays_d);
     CHECK_CUDA(grid);
-    CHECK_CUDA(points);
-    CHECK_CUDA(rays);
-    CHECK_CUDA(counter);
 
     CHECK_CONTIGUOUS(rays_o);
     CHECK_CONTIGUOUS(rays_d);
     CHECK_CONTIGUOUS(grid);
-    CHECK_CONTIGUOUS(points);
-    CHECK_CONTIGUOUS(rays);
-    CHECK_CONTIGUOUS(counter);
 
     CHECK_IS_FLOATING(rays_o);
     CHECK_IS_FLOATING(rays_d);
     CHECK_IS_FLOATING(grid);
-    CHECK_IS_FLOATING(points);
-    CHECK_IS_INT(rays);
-    CHECK_IS_INT(counter);
-
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "generate_points", ([&] {
-        generate_points_cuda<scalar_t>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, points.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
+        generate_points_cuda<scalar_t>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
     }));
-    
-    // resize in c++ 
-    points.resize_({counter[0].item().to<int64_t>(), points.size(1)});
 }
 
 
-void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor points, at::Tensor rays, const float bound, at::Tensor bg_color, const uint32_t M, const uint32_t N, at::Tensor depth, at::Tensor image) {
+void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor deltas, at::Tensor rays, const float bound, at::Tensor bg_color, const uint32_t M, const uint32_t N, at::Tensor depth, at::Tensor image) {
 
     CHECK_CUDA(sigmas);
     CHECK_CUDA(rgbs);
-    CHECK_CUDA(points);
+    CHECK_CUDA(deltas);
     CHECK_CUDA(rays);
     CHECK_CUDA(depth);
     CHECK_CUDA(image);
@@ -495,7 +453,7 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
 
     CHECK_CONTIGUOUS(sigmas);
     CHECK_CONTIGUOUS(rgbs);
-    CHECK_CONTIGUOUS(points);
+    CHECK_CONTIGUOUS(deltas);
     CHECK_CONTIGUOUS(rays);
     CHECK_CONTIGUOUS(depth);
     CHECK_CONTIGUOUS(image);
@@ -503,7 +461,7 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
 
     CHECK_IS_FLOATING(sigmas);
     CHECK_IS_FLOATING(rgbs);
-    CHECK_IS_FLOATING(points);
+    CHECK_IS_FLOATING(deltas);
     CHECK_IS_INT(rays);
     CHECK_IS_FLOATING(depth);
     CHECK_IS_FLOATING(image);
@@ -511,17 +469,17 @@ void accumulate_rays_forward(at::Tensor sigmas, at::Tensor rgbs, at::Tensor poin
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     sigmas.scalar_type(), "accumulate_rays_forward", ([&] {
-        accumulate_rays_forward_cuda<scalar_t>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), points.data_ptr<scalar_t>(), bg_color.data_ptr<scalar_t>(), rays.data_ptr<int>(), bound, M, N, depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
+        accumulate_rays_forward_cuda<scalar_t>(sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), bg_color.data_ptr<scalar_t>(), rays.data_ptr<int>(), bound, M, N, depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
     }));
 }
 
 
-void accumulate_rays_backward(at::Tensor grad, at::Tensor sigmas, at::Tensor rgbs, at::Tensor points, at::Tensor rays, at::Tensor image, const float bound, const uint32_t M, const uint32_t N, at::Tensor grad_sigmas, at::Tensor grad_rgbs) {
+void accumulate_rays_backward(at::Tensor grad, at::Tensor sigmas, at::Tensor rgbs, at::Tensor deltas, at::Tensor rays, at::Tensor image, const float bound, const uint32_t M, const uint32_t N, at::Tensor grad_sigmas, at::Tensor grad_rgbs) {
 
     CHECK_CUDA(grad);
     CHECK_CUDA(sigmas);
     CHECK_CUDA(rgbs);
-    CHECK_CUDA(points);
+    CHECK_CUDA(deltas);
     CHECK_CUDA(rays);
     CHECK_CUDA(image);
     CHECK_CUDA(grad_sigmas);
@@ -530,7 +488,7 @@ void accumulate_rays_backward(at::Tensor grad, at::Tensor sigmas, at::Tensor rgb
     CHECK_CONTIGUOUS(grad);
     CHECK_CONTIGUOUS(sigmas);
     CHECK_CONTIGUOUS(rgbs);
-    CHECK_CONTIGUOUS(points);
+    CHECK_CONTIGUOUS(deltas);
     CHECK_CONTIGUOUS(rays);
     CHECK_CONTIGUOUS(image);
     CHECK_CONTIGUOUS(grad_sigmas);
@@ -539,7 +497,7 @@ void accumulate_rays_backward(at::Tensor grad, at::Tensor sigmas, at::Tensor rgb
     CHECK_IS_FLOATING(grad);
     CHECK_IS_FLOATING(sigmas);
     CHECK_IS_FLOATING(rgbs);
-    CHECK_IS_FLOATING(points);
+    CHECK_IS_FLOATING(deltas);
     CHECK_IS_INT(rays);
     CHECK_IS_FLOATING(image);
     CHECK_IS_FLOATING(grad_sigmas);
@@ -547,6 +505,6 @@ void accumulate_rays_backward(at::Tensor grad, at::Tensor sigmas, at::Tensor rgb
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     grad.scalar_type(), "accumulate_rays_backward", ([&] {
-        accumulate_rays_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), points.data_ptr<scalar_t>(), rays.data_ptr<int>(), image.data_ptr<scalar_t>(), bound, M, N, grad_sigmas.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
+        accumulate_rays_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), image.data_ptr<scalar_t>(), bound, M, N, grad_sigmas.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
     }));
 }

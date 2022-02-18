@@ -19,7 +19,7 @@ class _hash_encode(Function):
 
         inputs = inputs.contiguous()
         embeddings = embeddings.contiguous()
-        offsets = offsets.contiguous().to(inputs.device)
+        offsets = offsets.contiguous()
 
         B, D = inputs.shape # batch size, coord dim
         L = offsets.shape[0] - 1 # level
@@ -95,19 +95,20 @@ class HashEncoder(nn.Module):
             print('[WARN] detected HashGrid level_dim % 2 != 0, which will cause very slow backward is also enabled fp16! (maybe fix later)')
 
         # allocate parameters
-        self.offsets = []
+        offsets = []
         offset = 0
         self.max_params = 2 ** log2_hashmap_size
         for i in range(num_levels):
             resolution = int(np.ceil(base_resolution * per_level_scale ** i))
             params_in_level = min(self.max_params, (resolution + 1) ** input_dim) # limit max number
             params_in_level = int(params_in_level / 8) * 8 # make divisible
-            self.offsets.append(offset)
+            offsets.append(offset)
             offset += params_in_level
-        self.offsets.append(offset)
-        self.offsets = torch.from_numpy(np.array(self.offsets, dtype=np.int32))
+        offsets.append(offset)
+        offsets = torch.from_numpy(np.array(offsets, dtype=np.int32))
+        self.register_buffer('offsets', offsets)
         
-        self.n_params = self.offsets[-1] * level_dim
+        self.n_params = offsets[-1] * level_dim
 
         # parameters
         self.embeddings = nn.Parameter(torch.empty(offset, level_dim))

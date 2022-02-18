@@ -6,6 +6,8 @@ import torch.nn.functional as F
 from ffmlp import FFMLP
 import math
 
+import tinycudann as tcnn
+
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, num_layers, activation=F.relu):
         super().__init__()
@@ -95,7 +97,7 @@ class MLP(nn.Module):
 # # Speed
 # ##################################
 
-BATCH_SIZE = 2**21 # the least batch to lauch a full block !
+BATCH_SIZE = 2**21
 INPUT_DIM = 16
 OUTPUT_DIM = 16
 HIDDEN_DIM = 64
@@ -103,10 +105,18 @@ NUM_LAYERS = 2
 
 net0 = FFMLP(INPUT_DIM, OUTPUT_DIM, HIDDEN_DIM, NUM_LAYERS).cuda()
 net1 = MLP(INPUT_DIM, OUTPUT_DIM, HIDDEN_DIM, NUM_LAYERS).cuda()
+net2 = tcnn.Network(n_input_dims=INPUT_DIM, n_output_dims=OUTPUT_DIM, network_config={
+                    "otype": "FullyFusedMLP",
+                    "activation": "ReLU",
+                    "output_activation": "None",
+                    "n_neurons": HIDDEN_DIM,
+                    "n_hidden_layers": NUM_LAYERS,
+                })
 
 x = torch.rand(BATCH_SIZE, INPUT_DIM).cuda() * 10
 x1 = x.detach().clone()
 x2 = x.detach().clone()
+x3 = x.detach().clone()
 
 starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
@@ -115,14 +125,17 @@ starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_t
 
 starter.record()
 y2 = net1(x2)
-ender.record(); torch.cuda.synchronize(); curr_time = starter.elapsed_time(ender); print(f'time1 (fp32 train) = {curr_time}')
+ender.record()
+torch.cuda.synchronize()
+curr_time = starter.elapsed_time(ender)
+print(f'pytorch MLP (fp32 train) = {curr_time}')
 
 starter.record()
 y2.sum().backward()
 ender.record()
 torch.cuda.synchronize()
 curr_time = starter.elapsed_time(ender)
-print(f'time1 (fp32 back) = {curr_time}')
+print(f'pytorch MLP (fp32 back) = {curr_time}')
 
 #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
@@ -134,14 +147,14 @@ with torch.cuda.amp.autocast(enabled=True):
         ender.record()
         torch.cuda.synchronize()
         curr_time = starter.elapsed_time(ender)
-        print(f'time0 (forward) = {curr_time}')
+        print(f'FFMLP (forward) = {curr_time}')
 
         starter.record()
         y0.sum().backward()
         ender.record()
         torch.cuda.synchronize()
         curr_time = starter.elapsed_time(ender)
-        print(f'time0 (backward) = {curr_time}')
+        print(f'FFMLP (backward) = {curr_time}')
         
     #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
@@ -151,16 +164,31 @@ with torch.cuda.amp.autocast(enabled=True):
         ender.record()
         torch.cuda.synchronize()
         curr_time = starter.elapsed_time(ender)
-        print(f'time1 (forward) = {curr_time}')
+        print(f'pytorch MLP (forward) = {curr_time}')
 
         starter.record()
         y1.sum().backward()
         ender.record()
         torch.cuda.synchronize()
         curr_time = starter.elapsed_time(ender)
-        print(f'time1 (backward) = {curr_time}')
+        print(f'pytorch MLP (backward) = {curr_time}')
     #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
+    #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
+        starter.record()
+        y3 = net2(x3)
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender)
+        print(f'TCNN (forward) = {curr_time}')
+
+        starter.record()
+        y3.sum().backward()
+        ender.record()
+        torch.cuda.synchronize()
+        curr_time = starter.elapsed_time(ender)
+        print(f'TCNN (backward) = {curr_time}')
+    #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
 with torch.no_grad():
     
@@ -169,7 +197,7 @@ with torch.no_grad():
     ender.record()
     torch.cuda.synchronize()
     curr_time = starter.elapsed_time(ender)
-    print(f'time1 (fp32 infer) = {curr_time}')
+    print(f'pytorch MLP (fp32 infer) = {curr_time}')
 
     with torch.cuda.amp.autocast(enabled=True):
         
@@ -181,7 +209,7 @@ with torch.no_grad():
             ender.record()
             torch.cuda.synchronize()
             curr_time = starter.elapsed_time(ender)
-            print(f'time0 (infer) = {curr_time}')
+            print(f'FFMLP (infer) = {curr_time}')
 
         #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
@@ -192,10 +220,22 @@ with torch.no_grad():
             ender.record()
             torch.cuda.synchronize()
             curr_time = starter.elapsed_time(ender)
-            print(f'time1 (infer) = {curr_time}')
+            print(f'pytorch MLP (infer) = {curr_time}')
 
         #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
 
-print(y0)
-print(y1)
+        #with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.CUDA,]) as p:
+
+            starter.record()
+            y2 = net2(x)
+            ender.record()
+            torch.cuda.synchronize()
+            curr_time = starter.elapsed_time(ender)
+            print(f'TCNN (infer) = {curr_time}')
+
+        #print(p.key_averages().table(sort_by="self_cuda_time_total", row_limit=-1))
+
+
+# print(y0)
+# print(y1)
         

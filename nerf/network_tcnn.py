@@ -90,7 +90,7 @@ class NeRFNetwork(nn.Module):
                  geo_feat_dim=15,
                  num_layers_color=3,
                  hidden_dim_color=64,
-                 density_grid_size=-1, # density grid size
+                 cuda_raymarching=False,
                  ):
         super().__init__()
 
@@ -149,23 +149,27 @@ class NeRFNetwork(nn.Module):
             },
         )
 
-        # density grid
-        if density_grid_size > 0:
-            # buffer is like parameter but never requires_grad
-            density_grid = torch.zeros([density_grid_size + 1] * 3) # +1 because we save values at grid
+# extra state for cuda raymarching
+        self.cuda_raymarching = cuda_raymarching
+        if cuda_raymarching:
+            # density grid
+            density_grid = torch.zeros([128 + 1] * 3) # +1 because we save values at grid
             self.register_buffer('density_grid', density_grid)
             self.mean_density = 0
             self.iter_density = 0
-        else:
-            self.density_grid = None
+            # step counter
+            step_counter = torch.zeros(64, 2, dtype=torch.int32) # 64 is hardcoded for averaging...
+            self.register_buffer('step_counter', step_counter)
+            self.mean_count = 0
+            self.local_step = 0
     
     def forward(self, x, d, bound):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
 
         prefix = x.shape[:-1]
-        x = x.reshape(-1, 3)
-        d = d.reshape(-1, 3)
+        x = x.view(-1, 3)
+        d = d.view(-1, 3)
 
         # sigma
         x = (x + bound) / (2 * bound) # to [0, 1]
@@ -186,8 +190,8 @@ class NeRFNetwork(nn.Module):
         # sigmoid activation for rgb
         color = torch.sigmoid(h)
     
-        sigma = sigma.reshape(*prefix)
-        color = color.reshape(*prefix, -1)
+        sigma = sigma.view(*prefix)
+        color = color.view(*prefix, -1)
 
         return sigma, color
 
@@ -195,7 +199,7 @@ class NeRFNetwork(nn.Module):
         # x: [B, N, 3], in [-bound, bound]
 
         prefix = x.shape[:-1]
-        x = x.reshape(-1, 3)
+        x = x.view(-1, 3)
 
         x = (x + bound) / (2 * bound) # to [0, 1]
         x = self.encoder(x)
@@ -204,7 +208,7 @@ class NeRFNetwork(nn.Module):
         #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
         sigma = F.relu(h[..., 0])
 
-        sigma = sigma.reshape(*prefix)
+        sigma = sigma.view(*prefix)
 
         return sigma
 
@@ -317,46 +321,43 @@ class NeRFNetwork(nn.Module):
             bg_color = torch.ones(3, dtype=rays_o.dtype, device=rays_o.device)
 
         ### generate points (forward only)
-        points, rays = raymarching.generate_points(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, self.training)
+        if self.training:
+            counter = self.step_counter[self.local_step % 64]
+            counter.zero_() # set to 0
+            self.local_step += 1
+            force_all_rays = False
+        else:
+            counter = None
+            force_all_rays = True
+
+        xyzs, dirs, deltas, rays = raymarching.generate_points(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, self.training, 128, force_all_rays)
 
         ### call network inference
-        # manual pad for ffmlp
-        n = points.shape[0]
-        pad_n = 128 - (n % 128)
-        if pad_n > 0:
-            points = torch.cat([points, torch.zeros(pad_n, points.shape[1], device=points.device, dtype=points.dtype)], dim=0)
-
-        sigmas, rgbs = self(points[:, :3], points[:, 3:6], bound=bound)
-
-        if pad_n > 0:
-            sigmas = sigmas[:n]
-            rgbs = rgbs[:n]
-
+        sigmas, rgbs = self(xyzs, dirs, bound=bound)
         
         ### accumulate rays (need backward)
         # inputs: sigmas: [M], rgbs: [M, 3], offsets: [N+1]
         # outputs: depth: [N], image: [N, 3]
-        depth, image = raymarching.accumulate_rays(sigmas, rgbs, points, rays, bound, bg_color)
+        depth, image = raymarching.accumulate_rays(sigmas, rgbs, deltas, rays, bound, bg_color)
 
         depth = depth.reshape(B, N)
         image = image.reshape(B, N, 3)
 
         return depth, image
 
-    
-    def update_density_grid(self, bound, decay=0.95, split_size=128):
-        # call before run_cuda, prepare a coarse density grid.
+        
+    def update_extra_state(self, bound, decay=0.95):
+        # call before each epoch to update extra states.
 
-        if self.density_grid is None:
+        if not self.cuda_raymarching:
             return 
         
+        ### update density grid
         resolution = self.density_grid.shape[0]
-
-        N = split_size # chunk to avoid OOM
         
-        X = torch.linspace(-bound, bound, resolution).split(N)
-        Y = torch.linspace(-bound, bound, resolution).split(N)
-        Z = torch.linspace(-bound, bound, resolution).split(N)
+        X = torch.linspace(-bound, bound, resolution).split(128)
+        Y = torch.linspace(-bound, bound, resolution).split(128)
+        Z = torch.linspace(-bound, bound, resolution).split(128)
 
         tmp_grid = torch.zeros_like(self.density_grid)
         with torch.no_grad():
@@ -372,26 +373,24 @@ class NeRFNetwork(nn.Module):
                         if pad_n != 0:
                             pts = torch.cat([pts, torch.zeros(pad_n, 3)], dim=0)
                         density = self.density(pts.to(tmp_grid.device), bound)[:n].reshape(lx, ly, lz).detach()
-                        tmp_grid[xi * N: xi * N + lx, yi * N: yi * N + ly, zi * N: zi * N + lz] = density
+                        tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = density
         
         # smooth by maxpooling
         tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
         tmp_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
 
         # ema update
-        #self.density_grid = tmp_grid
         self.density_grid = torch.maximum(self.density_grid * decay, tmp_grid)
-
         self.mean_density = torch.mean(self.density_grid).item()
         self.iter_density += 1
 
-        # TMP: save mesh for debug
-        # vertices, triangles = mcubes.marching_cubes(tmp_grid.detach().cpu().numpy(), 5)
-        # vertices = vertices / (resolution - 1.0) * 2 * bound - bound
-        # mesh = trimesh.Trimesh(vertices, triangles)
-        # mesh.export(f'./tmp/{self.iter_density}.ply')
+        ### update step counter
+        total_step = min(64, self.local_step)
+        if total_step > 0:
+            self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
+        self.local_step = 0
 
-        print(f'[density grid] iter={self.iter_density} min={self.density_grid.min().item()}, max={self.density_grid.max().item()}, mean={self.mean_density}')
+        print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f} | [step counter] mean={self.mean_count}')
 
 
     def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=4096, bg_color=None, **kwargs):
