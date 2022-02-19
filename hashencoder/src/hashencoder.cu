@@ -94,6 +94,34 @@ __global__ void kernel_grid(
     inputs += b * D;
     outputs += level * B * C + b * C;
 
+    // check input range (should be in [0, 1])
+    bool flag_oob = false;
+    #pragma unroll
+    for (uint32_t d = 0; d < D; d++) {
+        if (inputs[d] < 0 || inputs[d] > 1) {
+            flag_oob = true;
+            break;
+        }
+    }
+    // if input out of bound, just set output to 0
+    if (flag_oob) {
+        #pragma unroll
+        for (uint32_t ch = 0; ch < C; ch++) {
+            outputs[ch] = 0; 
+        }
+        if (calc_grad_inputs) {
+            dy_dx += b * D * L * C + level * D * C; // B L D C
+            #pragma unroll
+            for (uint32_t d = 0; d < D; d++) {
+                #pragma unroll
+                for (uint32_t ch = 0; ch < C; ch++) {
+                    dy_dx[d * C + ch] = 0; 
+                }       
+            }
+        }
+        return;
+    }
+
     const uint32_t hashmap_size = offsets[level + 1] - offsets[level];
     const float scale = exp2f(level * S) * H - 1.0f;
     const uint32_t resolution = (uint32_t)ceil(scale) + 1;
@@ -314,6 +342,7 @@ void kernel_grid_wrapper(const scalar_t *inputs, const scalar_t *embeddings, con
 // offsets: [L + 1], uint32_t
 // outputs: [L, B, C], float (L first, so only one level of hashmap needs to fit into cache at a time.)
 // H: base resolution
+// dy_dx: [B, L * D * C]
 template <typename scalar_t>
 void hash_encode_forward_cuda(const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx) {
     switch (D) {

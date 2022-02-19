@@ -126,8 +126,9 @@ class HashEncoder(nn.Module):
         # inputs: [..., input_dim], normalized real world positions in [-size, size]
         # return: [..., num_levels * level_dim]
 
-        if inputs.min().item() < -size or inputs.max().item() > size:
-            raise ValueError(f'HashGrid encoder: inputs range [{inputs.min().item()}, {inputs.max().item()}] not in [{-size}, {size}]!')
+        # item() cause D2H copy, slow down !!! Never do it!
+        # if inputs.min().item() < -size or inputs.max().item() > size:
+        #     raise ValueError(f'HashGrid encoder: inputs range [{inputs.min().item()}, {inputs.max().item()}] not in [{-size}, {size}]!')
 
         inputs = (inputs + size) / (2 * size) # map to [0, 1]
         
