@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd 
 
 from .backend import _backend
@@ -10,7 +11,6 @@ from .backend import _backend
 class _hash_encode(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
-    #@custom_fwd
     def forward(ctx, inputs, embeddings, offsets, per_level_scale, base_resolution, calc_grad_inputs=False):
         # inputs: [B, D], float in [0, 1]
         # embeddings: [sO, C], float
@@ -47,6 +47,7 @@ class _hash_encode(Function):
         return outputs
     
     @staticmethod
+    @once_differentiable
     @custom_bwd
     def backward(ctx, grad):
         # grad: [B, L * C]
@@ -125,10 +126,6 @@ class HashEncoder(nn.Module):
     def forward(self, inputs, size=1):
         # inputs: [..., input_dim], normalized real world positions in [-size, size]
         # return: [..., num_levels * level_dim]
-
-        # item() cause D2H copy, slow down !!! Never do it!
-        # if inputs.min().item() < -size or inputs.max().item() > size:
-        #     raise ValueError(f'HashGrid encoder: inputs range [{inputs.min().item()}, {inputs.max().item()}] not in [{-size}, {size}]!')
 
         inputs = (inputs + size) / (2 * size) # map to [0, 1]
         

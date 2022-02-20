@@ -442,7 +442,7 @@ class Trainer(object):
         self.model.train()
 
         # update grid
-        if self.model.cuda_raymarching:
+        if self.model.cuda_ray:
             with torch.cuda.amp.autocast(enabled=self.fp16):
                 self.model.update_extra_state(self.conf['bound'])
 
@@ -609,7 +609,7 @@ class Trainer(object):
             'stats': self.stats,
         }
 
-        if self.model.cuda_raymarching:
+        if self.model.cuda_ray:
             state['mean_count'] = self.model.mean_count
             state['mean_density'] = self.model.mean_density
 
@@ -685,7 +685,7 @@ class Trainer(object):
         self.stats = checkpoint_dict['stats']
         self.epoch = checkpoint_dict['epoch']
 
-        if self.model.cuda_raymarching:
+        if self.model.cuda_ray:
             self.model.mean_count = checkpoint_dict['mean_count']
             self.model.mean_density = checkpoint_dict['mean_density']
         

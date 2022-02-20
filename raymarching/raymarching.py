@@ -8,27 +8,31 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 
 from .backend import _backend
 
+#########################################
+### training functions
+#########################################
+
 ### generate points (forward only)
 # inputs: 
 #   rays_o/d: float[N, 3], bound: float
 # outputs: 
 #   points: float [M, 7], xyzs, dirs, dt
 #   rays: int [N, 3], id, offset, num_steps
-class _generate_points(Function):
+class _march_rays_train(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
     def forward(ctx, rays_o, rays_d, bound, density_grid, mean_density, iter_density, step_counter=None, mean_count=-1, perturb=False, align=-1, force_all_rays=False):
         
-        rays_o = rays_o.reshape(-1, 3).contiguous()
-        rays_d = rays_d.reshape(-1, 3).contiguous()
+        rays_o = rays_o.contiguous().view(-1, 3)
+        rays_d = rays_d.contiguous().view(-1, 3)
 
         N = rays_o.shape[0] # num rays
         H = density_grid.shape[0] # grid resolution
 
-        M = N * 512 # init max points number in total, hardcoded
+        M = N * 1024 # init max points number in total, hardcoded
 
         # running average based on previous epoch (mimic `measured_batch_size_before_compaction` in instant-ngp)
-        # It estimate the max points number to enable faster training, but will lead to random rays to be ignored.
+        # It estimate the max points number to enable faster training, but will lead to random ignored rays if underestimated.
         if not force_all_rays and mean_count > 0:
             if align > 0:
                 mean_count += align - mean_count % align
@@ -42,13 +46,13 @@ class _generate_points(Function):
         if step_counter is None:
             step_counter = torch.zeros(2, dtype=torch.int32, device=rays_o.device) # point counter, ray counter
 
-        _backend.generate_points(rays_o, rays_d, density_grid, mean_density, iter_density, bound, N, H, M, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
+        _backend.march_rays_train(rays_o, rays_d, density_grid, mean_density, iter_density, bound, N, H, M, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
 
         #print(step_counter, M)
 
-        # only used at the first epoch.
+        # only used at the first (few) epochs.
         if force_all_rays or mean_count <= 0:
-            m = step_counter[0].item() # cause copy to CPU, will slow down a bit
+            m = step_counter[0].item() # D2H copy
             if align > 0:
                 m += align - m % align
             xyzs = xyzs[:m]
@@ -57,13 +61,13 @@ class _generate_points(Function):
 
         return xyzs, dirs, deltas, rays
 
-generate_points = _generate_points.apply
+march_rays_train = _march_rays_train.apply
 
 
 ### accumulate rays (need backward)
 # inputs: sigmas: [M], rgbs: [M, 3], rays: [N, 3], points [M, 7]
 # outputs: depth: [N], image: [N, 3]
-class _accumulate_rays(Function):
+class _composite_rays_train(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
     def forward(ctx, sigmas, rgbs, deltas, rays, bound, bg_color):
@@ -79,7 +83,7 @@ class _accumulate_rays(Function):
         depth = torch.empty(N, dtype=sigmas.dtype, device=sigmas.device)
         image = torch.empty(N, 3, dtype=sigmas.dtype, device=sigmas.device)
 
-        _backend.accumulate_rays_forward(sigmas, rgbs, deltas, rays, bound, bg_color, M, N, depth, image)
+        _backend.composite_rays_train_forward(sigmas, rgbs, deltas, rays, bound, bg_color, M, N, depth, image)
 
         ctx.save_for_backward(sigmas, rgbs, deltas, rays, image, bg_color)
         ctx.dims = [M, N, bound]
@@ -99,9 +103,83 @@ class _accumulate_rays(Function):
         grad_sigmas = torch.zeros_like(sigmas)
         grad_rgbs = torch.zeros_like(rgbs)
 
-        _backend.accumulate_rays_backward(grad_image, sigmas, rgbs, deltas, rays, image, bound, M, N, grad_sigmas, grad_rgbs)
+        _backend.composite_rays_train_backward(grad_image, sigmas, rgbs, deltas, rays, image, bound, M, N, grad_sigmas, grad_rgbs)
 
         return grad_sigmas, grad_rgbs, None, None, None, None
 
 
-accumulate_rays = _accumulate_rays.apply
+composite_rays_train = _composite_rays_train.apply
+
+#########################################
+### inference functions
+#########################################
+
+### march_rays
+# inputs:
+#   n_alive: n
+#   n_step: int
+#   rays_alive: int [n], only the alive IDs in N (n may > n_alive, but we only work on first n_alive)
+#   rays_t: float [n], input & output
+#   rays_o/d: float [N, 3], all rays
+#   bound: float
+#   density_grid: float [H, H, H]
+#   mean_density: float
+#   near/far: float [N]
+# outputs:
+#   xyzs, dirs, dt: float [n_alive * n_step, 3/3/2], output
+class _march_rays(Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
+    def forward(ctx, n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, density_grid, mean_density, near, far, align=-1):
+        
+        rays_o = rays_o.contiguous().view(-1, 3)
+        rays_d = rays_d.contiguous().view(-1, 3)
+
+        H = density_grid.shape[0] # grid resolution
+        M = n_alive * n_step
+
+        if align > 0:
+            M += align - (M % align)
+        
+        xyzs = torch.zeros(M, 3, dtype=rays_o.dtype, device=rays_o.device)
+        dirs = torch.zeros(M, 3, dtype=rays_o.dtype, device=rays_o.device)
+        deltas = torch.zeros(M, 2, dtype=rays_o.dtype, device=rays_o.device) # 2 vals, one for rgb, one for depth
+
+        _backend.march_rays(n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, H, density_grid, mean_density, near, far, xyzs, dirs, deltas)
+
+        return xyzs, dirs, deltas
+
+march_rays = _march_rays.apply
+
+
+### composite_rays 
+# modify rays_alive to -1 if it is dead.(actual_step < step, indicated by dt <= 0)
+# inputs:
+#   n_alive: int
+#   n_step: int
+#   rays_alive: int [n]
+#   sigmas, rgbs, deltas: float [n_alive * n_step, 1/3/2]
+#   depth, image, weight: float [N, 1/3/1]
+class _composite_rays(Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
+    def forward(ctx, n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights, depth, image):
+        _backend.composite_rays(n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights, depth, image)
+
+
+composite_rays = _composite_rays.apply
+
+### compact_rays
+# inputs:
+#   rays_alive_old
+#   rays_t_old
+# outputs:
+#   rays_alive
+#   rays_t
+class _compact_rays(Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.half)
+    def forward(ctx, n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter):
+        _backend.compact_rays(n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter)
+
+compact_rays = _compact_rays.apply

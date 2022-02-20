@@ -22,7 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-size, size)")
 
-    parser.add_argument('--cuda_raymarching', action='store_true', help="use CUDA raymarching instead of pytorch (unstable now)")
+    parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch (unstable now)")
 
     opt = parser.parse_args()
 
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     model = NeRFNetwork(
         encoding="hashgrid", encoding_dir="sphere_harmonics", 
         num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
-        density_grid_size=128 if opt.cuda_raymarching else -1,
+        density_grid_size=128 if opt.cuda_ray else -1,
     )
 
     print(model)

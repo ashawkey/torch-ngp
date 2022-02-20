@@ -2,7 +2,12 @@
 
 A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 
-**Note**: The NeRF performance is far from **instant** due to current naive raymarching implementation (see [here](https://github.com/ashawkey/torch-ngp/issues/3)).
+**News**: With the CUDA ray marching option for NeRF, we can now:
+* converge to a reasonable result in about 1min (50 epochs).
+* render a 1920x1080 image in under 1s.
+(tested on the fox dataset with a TITAN RTX)
+For the LEGO dataset, we can reach **~10FPS** at 800x800.
+(Although the speed is still 2x~5x slower compared to the original implementation.)
 
 SDF | NeRF
 :---: | :---:
@@ -25,23 +30,17 @@ Later development will be focused on reproducing the NeRF inference speed.
         - [ ] better SDF calculation (especially for non-watertight meshes)
     - NeRF
         - [x] baseline (although much slower)
-        - [ ] ray marching in CUDA.
+        - [x] ray marching in CUDA.
 
-# News
-* 2.15: add the official [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) as an alternative backend.    
-* 2.10: add cuda_raymarching, can train/infer faster, but performance is worse currently.
-* 2.6: add support for RGBA image.
-* 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
-* 1.29: 
-    * finished an experimental binding of fully-fused MLP.
-    * replace SHEncoder with a CUDA implementation.
-* 1.26: add fp16 support for HashGrid Encoder (requires CUDA >= 10 and GPU ARCH >= 70 for now...).
 
 # Install
 ```bash
 pip install -r requirements.txt
+
+# (optional) install the tcnn backbone
+pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ```
-Tested on Ubuntu with torch 1.10 & CUDA 11.3
+Tested on Ubuntu with torch 1.10 & CUDA 11.3 on TITAN RTX.
 
 # Usage
 
@@ -54,16 +53,35 @@ First time running will take some time to compile the CUDA extensions.
 # SDF experiment
 bash scripts/run_sdf.sh
 
-# NeRF experiment
+# NeRF experiment (see the shell script for more options)
 bash scripts/run_nerf.sh
 
+# use different backbones
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf # fp32 mode
 python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # fp16 mode + fully-fused MLP
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_raymarching # (experimental) fp16 mode + fully-fused MLP + cuda raymarching
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann's encoder & MLP
 
+# [NEW] use CUDA to accelerate ray marching 
+python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
 ```
+
+# Difference from the original implementation
+* Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
+* For the hashgrid encoder, this repo only implement the linear interpolation mode.
+* For the voxel pruning in ray marching kernels, this repo doesn't implement the multi-scale density grid (check the `mip` keyword), and only use one `128x128x128` grid for simplicity. Instead of updating the grid every 16 steps, we update it every epoch, which may lead to slower first few epochs if using `--cuda_ray`.
+
+# Update Logs
+* 2.20: cuda raymarching is finally stable now!
+* 2.15: add the official [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) as an alternative backend.    
+* 2.10: add cuda_ray, can train/infer faster, but performance is worse currently.
+* 2.6: add support for RGBA image.
+* 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
+* 1.29: 
+    * finished an experimental binding of fully-fused MLP.
+    * replace SHEncoder with a CUDA implementation.
+* 1.26: add fp16 support for HashGrid Encoder (requires CUDA >= 10 and GPU ARCH >= 70 for now...).
+
 
 # Acknowledgement
 

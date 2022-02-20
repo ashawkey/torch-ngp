@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Function
+from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd 
 
 from .backend import _backend
@@ -34,6 +35,7 @@ class _sh_encoder(Function):
         return outputs
     
     @staticmethod
+    @once_differentiable
     @custom_bwd
     def backward(ctx, grad):
         # grad: [B, C * C]
