@@ -399,7 +399,6 @@ __global__ void kernel_mlp_fused(
 			threadblock_last_layer_forward<WIDTH, BLOCK_DIM_Z, N_ITERS, OUT_T>(output_activation, act_shmem, weights + first_layer_size + layer_stride * n_hidden_matmuls, out + elem_idx * 16, 16, output_layout);
 			//if (threadIdx.x == 0) printf("[forward] forward_buffer=%f\n", (float)out_intermediate[0]);
 		} else {
-			//threadblock_last_layer_forward<WIDTH, BLOCK_DIM_Z, N_ITERS, OUT_T>(output_activation, act_shmem, weights + first_layer_size + layer_stride * n_hidden_matmuls, out + elem_idx, batch_size, output_layout);
 			//printf("[last layer] CM write to out %d\n", elem_idx);
 			//if (threadIdx.x == 0) printf("[forward] forward_buffer=%f\n", (float)out_intermediate[0]);
 			threadblock_last_layer_forward<WIDTH, BLOCK_DIM_Z, N_ITERS, OUT_T>(output_activation, act_shmem, weights + first_layer_size + layer_stride * n_hidden_matmuls, out + elem_idx, batch_size, output_layout);

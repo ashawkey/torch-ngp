@@ -31,8 +31,11 @@ Later development will be focused on reproducing the NeRF inference speed.
         - [x] baseline
         - [ ] better SDF calculation (especially for non-watertight meshes)
     - NeRF
-        - [x] baseline (although much slower)
+        - [x] baseline
         - [x] ray marching in CUDA.
+* Misc.
+    - [ ] more robust camera (e.g., when rays not intersect with the bounding box)
+    - [ ] improve performance (e.g., avoid the `cat` in NeRF forward)
 
 
 # Install

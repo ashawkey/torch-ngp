@@ -44,8 +44,6 @@ class _ffmlp_forward(Function):
             # print('[inference_buffer]', torch.any(torch.isnan(inference_buffer)), inference_buffer.shape, inference_buffer.dtype, inference_buffer.min().item(), inference_buffer.max().item())
 
 
-        outputs = outputs.contiguous()
-
         return outputs
     
     @staticmethod
@@ -127,7 +125,7 @@ class FFMLP(nn.Module):
         _backend.allocate_splitk(self.num_layers + 1)
 
         # register destructor
-        #atexit.register(self.cleanup)
+        #atexit.register(self.cleanup) # how to correctly clean? this gives CUDA Error: cudaEventDestroy(events[i]) failed with error context is destroyed
 
 
     def cleanup(self):

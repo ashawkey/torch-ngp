@@ -65,6 +65,9 @@ class NeRFNetwork(NeRFRenderer):
         # color        
         d = self.encoder_dir(d)
 
+        # TODO: avoid this cat op... 
+        # should pre-allocate output (col-major!), then inplace write from ffmlp & shencoder, finally transpose to row-major.
+        # this is impossible...
         p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
         h = torch.cat([d, geo_feat, p], dim=-1)
         h = self.color_net(h)

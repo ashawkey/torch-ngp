@@ -50,13 +50,13 @@ class _hash_encode(Function):
     @once_differentiable
     @custom_bwd
     def backward(ctx, grad):
-        # grad: [B, L * C]
-
-        grad = grad.contiguous()
 
         inputs, embeddings, offsets, dy_dx = ctx.saved_tensors
         B, D, C, L, S, H = ctx.dims
         calc_grad_inputs = ctx.calc_grad_inputs
+
+        # grad: [B, L * C] --> [L, B, C]
+        grad = grad.view(B, L, C).permute(1, 0, 2).contiguous()
 
         grad_embeddings = torch.zeros_like(embeddings)
 

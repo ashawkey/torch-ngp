@@ -314,7 +314,7 @@ class Trainer(object):
     def test_step(self, data):  
         poses = data["pose"] # [B, 4, 4]
         intrinsics = data["intrinsic"] # [B, 3, 3]
-        H, W = data['shape'][0].item(), data['shape'][1].item()
+        H, W = int(data['H'][0]), int(data['W'][0]) # get the target size...
 
         B = poses.shape[0]
         rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)

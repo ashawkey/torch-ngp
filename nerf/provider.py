@@ -118,7 +118,9 @@ class NeRFDataset(Dataset):
         }
 
         if self.type == 'test':
-            results['shape'] = (self.H, self.W)
+            # only string can bypass the default collate, so we don't need to call item: https://github.com/pytorch/pytorch/blob/67a275c29338a6c6cc405bf143e63d53abe600bf/torch/utils/data/_utils/collate.py#L84
+            results['H'] = str(self.H)
+            results['W'] = str(self.W)
             return results
         else:
             results['image'] = self.images[index]

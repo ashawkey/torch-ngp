@@ -58,15 +58,12 @@ __device__ uint32_t get_grid_index(const uint32_t ch, const uint32_t hashmap_siz
 
 	#pragma unroll
     for (uint32_t d = 0; d < D && stride <= hashmap_size; d++) {
-        //printf("get_grid_index d=%d, pos_grid[d]=%d, stride=%d, reso=%d\n", d, pos_grid[d], stride, resolution);
         index += pos_grid[d] * stride;
         stride *= (resolution + 1);
     }
 
     if (stride > hashmap_size) {
-        //printf("hash because %d > %d\n", stride, hashmap_size);
         index = fast_hash<D>(pos_grid);
-        //printf("hashed (%d, %d) = %d to %d in %d\n", pos_grid[0], pos_grid[1], pos_grid[0] + resolution * pos_grid[1], index % hashmap_size, hashmap_size);
     }
 
 	return (index % hashmap_size) * C + ch;
@@ -100,7 +97,6 @@ __global__ void kernel_grid(
     for (uint32_t d = 0; d < D; d++) {
         if (inputs[d] < 0 || inputs[d] > 1) {
             flag_oob = true;
-            break;
         }
     }
     // if input out of bound, just set output to 0
@@ -242,7 +238,7 @@ __global__ void kernel_grid_backward(
     // locate
     grad_grid += offsets[level] * C;
     inputs += b * D;
-    grad += b * L * C + level * C + ch;
+    grad += level * B * C + b * C + ch; // L, B, C
 
     const uint32_t hashmap_size = offsets[level + 1] - offsets[level];
     const float scale = exp2f(level * S) * H - 1.0f;
@@ -257,6 +253,12 @@ __global__ void kernel_grid_backward(
         pos[d] = (float)inputs[d] * scale + 0.5f;
         pos_grid[d] = floorf(pos[d]);
         pos[d] -= (float)pos_grid[d];
+    }
+
+    scalar_t grad_cur[N_C] = {0}; // fetch to register
+    #pragma unroll
+    for (uint32_t c = 0; c < N_C; c++) {
+        grad_cur[c] = grad[c];
     }
 
     // interpolate
@@ -284,14 +286,14 @@ __global__ void kernel_grid_backward(
             #pragma unroll
             for (uint32_t c = 0; c < N_C; c += 2) {
                 // process two __half at once (by interpreting as a __half2)
-                __half2 v = {(__half)(w * grad[c]), (__half)(w * grad[c + 1])};
+                __half2 v = {(__half)(w * grad_cur[c]), (__half)(w * grad_cur[c + 1])};
                 atomicAdd((__half2*)&grad_grid[index + c], v);
             }
-        // float, or __half when N_C % 2 != 0
+        // float, or __half when N_C % 2 != 0 (which means C == 1)
         } else {
             #pragma unroll
             for (uint32_t c = 0; c < N_C; c++) {
-                atomicAdd(&grad_grid[index + c], w * grad[c]);
+                atomicAdd(&grad_grid[index + c], w * grad_cur[c]);
             }
         }
     }    
@@ -311,16 +313,19 @@ __global__ void kernel_input_backward(
     const uint32_t b = t / D;
     const uint32_t d = t - b * D;
 
-    grad += b * L * C;
     dy_dx += b * L * D * C;
+
+    scalar_t result = 0;
     
     # pragma unroll
     for (int l = 0; l < L; l++) {
         # pragma unroll
         for (int ch = 0; ch < C; ch++) {
-            grad_inputs[t] += grad[l * C + ch] * dy_dx[l * D * C + d * C + ch];
+            result += grad[l * B * C + b * C + ch] * dy_dx[l * D * C + d * C + ch];
         }
     }
+
+    grad_inputs[t] = result;
 }
 
 
@@ -380,7 +385,7 @@ void kernel_grid_backward_wrapper(const scalar_t *grad, const scalar_t *inputs, 
 }
 
 
-// grad: [B, L * C], float
+// grad: [L, B, C], float
 // inputs: [B, D], float, in [0, 1]
 // embeddings: [sO, C], float
 // offsets: [L + 1], uint32_t
