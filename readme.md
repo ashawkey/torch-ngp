@@ -6,7 +6,9 @@ A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp)
 * converge to a reasonable result in about 1min (50 epochs).
 * render a 1920x1080 image in under 1s.
 (tested on the fox dataset with a TITAN RTX)
+
 For the LEGO dataset, we can reach **~10FPS** at 800x800.
+
 (Although the speed is still 2x~5x slower compared to the original implementation.)
 
 SDF | NeRF
