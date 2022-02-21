@@ -1,0 +1,2 @@
+#CUDA_VISIBLE_DEVICES=0 python gui_nerf.py data/fox/transforms.json --workspace=trial_nerf_ff2/ --fp16 --ff --cuda_ray
+CUDA_VISIBLE_DEVICES=0 python gui_nerf.py data/nerf_synthetic/lego/transforms_train.json --workspace=trial_nerf_lego_ff2/ --fp16 --ff --cuda_ray

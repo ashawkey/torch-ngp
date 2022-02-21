@@ -11,3 +11,4 @@ matplotlib
 PyMCubes
 rich
 pysdf
+dearpygui

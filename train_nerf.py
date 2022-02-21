@@ -21,10 +21,10 @@ if __name__ == '__main__':
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
     parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
     
-    parser.add_argument('--radius', type=float, default=2, help="assume the camera is located on sphere(0, radius))")
-    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-size, size)")
+    parser.add_argument('--radius', type=float, default=2, help="assume the camera is located around sphere(0, radius))")
+    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
 
-    parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch (unstable now)")
+    parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
 
     opt = parser.parse_args()
 

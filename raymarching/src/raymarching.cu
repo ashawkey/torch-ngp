@@ -111,7 +111,7 @@ __global__ void kernel_march_rays_train(
 
     pcg32 rng((uint64_t)n);
 
-    while (t <= far && num_steps < MAX_STEPS()) {
+    while (t < far && num_steps < MAX_STEPS()) {
         // current point
         const float x = clamp(ox + t * dx, -bound, bound);
         const float y = clamp(oy + t * dy, -bound, bound);
@@ -173,7 +173,7 @@ __global__ void kernel_march_rays_train(
 
     rng = pcg32((uint64_t)n); // reset 
 
-    while (t <= far && step < num_steps) {
+    while (t < far && step < num_steps) {
         // current point
         const float x = clamp(ox + t * dx, -bound, bound);
         const float y = clamp(oy + t * dy, -bound, bound);
@@ -547,7 +547,7 @@ __global__ void kernel_march_rays(
     uint32_t step = 0;
     float last_t = t;
 
-    while (t <= far && step < n_step) {
+    while (t < far && step < n_step) {
         // current point
         const float x = clamp(ox + t * dx, -bound, bound);
         const float y = clamp(oy + t * dy, -bound, bound);

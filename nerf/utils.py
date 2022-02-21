@@ -410,6 +410,30 @@ class Trainer(object):
                 pbar.update(loader.batch_size)
 
         self.log(f"==> Finished Test.")
+    
+    # infer on a single image 
+    def infer(self, pose, intrinsics, W, H):
+
+        data = {
+            'pose': pose[None, :],
+            'intrinsic': intrinsics[None, :],
+            'H': [str(H)],
+            'W': [str(W)],
+        }
+
+        data = self.prepare_data(data)
+        
+        self.model.eval()
+        with torch.no_grad():
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                preds, preds_depth = self.test_step(data)
+
+        outputs = {
+            'image': preds[0].detach().cpu().numpy(),
+            'depth': preds_depth[0].detach().cpu().numpy(),
+        }
+
+        return outputs
 
     def prepare_data(self, data):
         if isinstance(data, list):

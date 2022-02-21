@@ -57,11 +57,15 @@ def near_far_from_bound(rays_o, rays_d, bound, type='cube'):
         far = radius + bound
 
     elif type == 'cube':
-        # TODO: if bound < radius, some rays may not intersect with the bbox. (should set near = far = inf ... or far < near)
         tmin = (-bound - rays_o) / (rays_d + 1e-15) # [B, N, 3]
         tmax = (bound - rays_o) / (rays_d + 1e-15)
         near = torch.where(tmin < tmax, tmin, tmax).max(dim=-1, keepdim=True)[0]
         far = torch.where(tmin > tmax, tmin, tmax).min(dim=-1, keepdim=True)[0]
+        # if far < near, means no intersection, set both near and far to inf (1e9 here)
+        mask = far < near
+        near[mask] = 1e9
+        far[mask] = 1e9
+        # restrict near to a minimal value
         near = torch.clamp(near, min=0.05)
 
     return near, far
@@ -104,7 +108,7 @@ class NeRFRenderer(nn.Module):
     def density(self, x, bound):
         raise NotImplementedError()
 
-    def run(self, rays_o, rays_d, num_steps, bound, upsample_steps, bg_color):
+    def run(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # bg_color: [3] in range [0, 1]
         # return: image: [B, N, 3], depth: [B, N]
@@ -204,7 +208,7 @@ class NeRFRenderer(nn.Module):
         return depth, image
 
 
-    def run_cuda(self, rays_o, rays_d, num_steps, bound, upsample_steps, bg_color):
+    def run_cuda(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: image: [B, N, 3], depth: [B, N]
 
@@ -337,7 +341,7 @@ class NeRFRenderer(nn.Module):
         print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f} | [step counter] mean={self.mean_count}')
 
 
-    def render(self, rays_o, rays_d, num_steps, bound, upsample_steps, staged=False, max_ray_batch=4096, bg_color=None, **kwargs):
+    def render(self, rays_o, rays_d, bound=1, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
 
@@ -358,12 +362,12 @@ class NeRFRenderer(nn.Module):
                 head = 0
                 while head < N:
                     tail = min(head + max_ray_batch, N)
-                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, bound, upsample_steps, bg_color)
+                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], bound, num_steps, upsample_steps, bg_color)
                     depth[b:b+1, head:tail] = depth_
                     image[b:b+1, head:tail] = image_
                     head += max_ray_batch
         else:
-            depth, image = _run(rays_o, rays_d, num_steps, bound, upsample_steps, bg_color)
+            depth, image = _run(rays_o, rays_d, bound, num_steps, upsample_steps, bg_color)
 
         results = {}
         results['depth'] = depth
