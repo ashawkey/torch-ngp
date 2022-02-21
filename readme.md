@@ -3,13 +3,17 @@
 A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 
 **News**: With the CUDA ray marching option for NeRF, we can:
-* converge to a reasonable result in **~1min** (50 epochs).
-* render a 1920x1080 image in **~1s**.
-(tested on the fox dataset with a TITAN RTX)
+* converge to a reasonable result in **~1min** (50 epochs). 
+* render a 1920x1080 image in **~1s**. 
+
 For the LEGO dataset, we can reach **~10FPS** at 800x800.
+
+(Tested on the fox dataset with a TITAN RTX)
+
 (Although, the inference speed is still 2x~5x slower compared to the original implementation.)
 
 An experimental GUI for visualizing a trained NeRF is also available now!
+
 ![](assets/gui.gif)
 
 SDF | NeRF
