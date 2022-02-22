@@ -279,7 +279,7 @@ class NeRFGUI:
             dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Middle, callback=callback_camera_drag_pan)
 
         
-        dpg.create_viewport(title='Renderer', width=self.W, height=self.H, resizable=False)
+        dpg.create_viewport(title='torch-ngp', width=self.W, height=self.H, resizable=False)
         
         # TODO: seems dearpygui doesn't support resizing texture...
         # def callback_resize(sender, app_data):

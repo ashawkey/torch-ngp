@@ -6,13 +6,11 @@ A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp)
 * converge to a reasonable result in **~1min** (50 epochs). 
 * render a 1920x1080 image in **~1s**. 
 
-For the LEGO dataset, we can reach **~10FPS** at 800x800.
+For the LEGO dataset, we can reach **~10FPS** at 800x800 due to efficient voxel pruning.
 
-(Tested on the fox dataset with a TITAN RTX)
+(Tested on the fox dataset with a TITAN RTX. The inference speed is still 2-5x slower, and training speed 5-10x slower compared to the original implementation.)
 
-(Although, the inference speed is still 2x~5x slower compared to the original implementation.)
-
-**An experimental GUI** for visualizing a trained NeRF is also available now!
+**A GUI for training/visualizing NeRF is also available!**
 
 ![](assets/gui.jpg)
 
