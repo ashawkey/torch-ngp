@@ -311,14 +311,20 @@ class Trainer(object):
 
         return pred_rgb, pred_depth, gt_rgb, loss
 
-    def test_step(self, data):  
+    def test_step(self, data, bg_color=None):  
         poses = data["pose"] # [B, 4, 4]
         intrinsics = data["intrinsic"] # [B, 3, 3]
         H, W = int(data['H'][0]), int(data['W'][0]) # get the target size...
 
         B = poses.shape[0]
+
         rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
-        outputs = self.model.render(rays_o, rays_d, staged=True, **self.conf)
+
+        if bg_color is not None:
+            bg_color = bg_color.to(rays_o.device)
+
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, **self.conf)
+
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
@@ -372,10 +378,6 @@ class Trainer(object):
             self.writer.close()
 
     def evaluate(self, loader):
-        #if os.path.exists(self.best_path):
-        #    self.load_checkpoint(self.best_path)
-        #else:
-        #    self.load_checkpoint()
         self.use_tensorboardX, use_tensorboardX = False, self.use_tensorboardX
         self.evaluate_one_epoch(loader)
         self.use_tensorboardX = use_tensorboardX
@@ -411,8 +413,68 @@ class Trainer(object):
 
         self.log(f"==> Finished Test.")
     
-    # infer on a single image 
-    def infer(self, pose, intrinsics, W, H):
+    # [GUI] just train for 16 steps, without any other overhead that may slow down rendering.
+    def train_gui(self, train_loader, step=16):
+
+        self.model.train()
+
+        # update grid
+        if self.model.cuda_ray:
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                self.model.update_extra_state(self.conf['bound'])
+
+        total_loss = torch.tensor([0], dtype=torch.float32, device=self.device)
+        
+        loader = iter(train_loader)
+
+        for _ in range(step):
+            
+            # mimic an infinite loop dataloader (in case the total dataset is smaller than step)
+            try:
+                data = next(loader)
+            except StopIteration:
+                loader = iter(train_loader)
+                data = next(loader)
+            
+            self.global_step += 1
+            
+            data = self.prepare_data(data)
+
+            self.optimizer.zero_grad()
+
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                preds, truths, loss = self.train_step(data)
+         
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            
+            if self.ema is not None:
+                self.ema.update()
+
+            if self.scheduler_update_every_step:
+                self.lr_scheduler.step()
+
+            total_loss += loss.detach()
+
+        average_loss = total_loss.item() / step
+
+        if not self.scheduler_update_every_step:
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.lr_scheduler.step(average_loss)
+            else:
+                self.lr_scheduler.step()
+
+        outputs = {
+            'loss': average_loss,
+            'lr': self.optimizer.param_groups[0]['lr'],
+        }
+        
+        return outputs
+
+    
+    # [GUI] test on a single image
+    def test_gui(self, pose, intrinsics, W, H, bg_color=None):
 
         data = {
             'pose': pose[None, :],
@@ -426,7 +488,7 @@ class Trainer(object):
         self.model.eval()
         with torch.no_grad():
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                preds, preds_depth = self.test_step(data)
+                preds, preds_depth = self.test_step(data, bg_color=bg_color)
 
         outputs = {
             'image': preds[0].detach().cpu().numpy(),

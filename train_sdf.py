@@ -32,7 +32,7 @@ if __name__ == '__main__':
     train_dataset = SDFDataset(opt.path, size=100, num_samples=2**18)
     valid_dataset = SDFDataset(opt.path, size=1, num_samples=2**18) # just a dummy
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
 
     model = SDFNetwork(encoding="hashgrid")

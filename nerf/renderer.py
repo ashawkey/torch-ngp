@@ -203,6 +203,7 @@ class NeRFRenderer(nn.Module):
         # mix background color
         if bg_color is None:
             bg_color = 1
+            
         image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
 
         return depth, image
@@ -338,7 +339,7 @@ class NeRFRenderer(nn.Module):
             self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
         self.local_step = 0
 
-        print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f} | [step counter] mean={self.mean_count}')
+        #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f} | [step counter] mean={self.mean_count}')
 
 
     def render(self, rays_o, rays_d, bound=1, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, **kwargs):

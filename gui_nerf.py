@@ -4,6 +4,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from scipy.spatial.transform import Rotation as R
 
+from nerf.provider import NeRFDataset
 from nerf.utils import *
 
 
@@ -65,36 +66,57 @@ class OrbitCamera:
 
 class NeRFGUI:
     def __init__(self, opt, trainer, debug=True):
-        dpg.create_context()
+        self.opt = opt
         self.W = opt.W
         self.H = opt.H
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius)
         self.trainer = trainer
         self.debug = debug
-        self.register_dpg()
-        self.update_texture()
         self.need_update = False
+        self.bg_color = None # rendering bg color (TODO)
+        self.training = False
+        self.step = 0
+
+        dpg.create_context()
+        self.register_dpg()
+        self.test_step()
         
 
     def __del__(self):
         dpg.destroy_context()
 
+
+    def train_step(self):
+
+        starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        starter.record()
+
+        outputs = self.trainer.train_gui(self.trainer.train_loader)
+
+        ender.record()
+        torch.cuda.synchronize()
+        t = starter.elapsed_time(ender)
+
+        self.step += 1
+
+        dpg.set_value("_log_train_time", f'{t:.4f}ms')
+        dpg.set_value("_log_train_log", f'step = {self.step: 5d}, loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.6f}')
+
     
-    def update_texture(self):
+    def test_step(self):
         # TODO: seems we have to move data from GPU --> CPU --> GPU?
         # TODO: dynamic rendering resolution to keep it fluent.
         
-        if self.debug:
-            starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-            starter.record()
+        starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        starter.record()
 
-        outputs = self.trainer.infer(self.cam.pose, self.cam.intrinsics, self.W, self.H)
+        outputs = self.trainer.test_gui(self.cam.pose, self.cam.intrinsics, self.W, self.H, self.bg_color)
 
-        if self.debug:
-            ender.record()
-            torch.cuda.synchronize()
-            dpg.set_value("_log_time", str(starter.elapsed_time(ender)))
+        ender.record()
+        torch.cuda.synchronize()
+        t = starter.elapsed_time(ender)
 
+        dpg.set_value("_log_infer_time", f'{t:.4f}ms')
         dpg.set_value("_texture", outputs['image'])
 
         
@@ -114,13 +136,95 @@ class NeRFGUI:
 
         dpg.set_primary_window("_primary_window", True)
 
-        if self.debug:
-            with dpg.window(label="Debug", tag="_debug_window", width=500, height=150):
+
+
+        with dpg.window(label="Control", tag="_control_window", width=400, height=200):
+
+            # button theme
+            with dpg.theme() as theme_button:
+                with dpg.theme_component(dpg.mvButton):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (23, 3, 18))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (51, 3, 47))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (83, 18, 83))
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 5)
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 3, 3)
+
+            # time
+            if self.opt.train:
                 with dpg.group(horizontal=True):
-                    dpg.add_text("Infer time: ")
-                    dpg.add_text("nan", tag="_log_time")
-                dpg.add_text("Camera Pose:")
-                dpg.add_text(str(self.cam.pose), tag="_log_pose")
+                    dpg.add_text("Train time: ")
+                    dpg.add_text("no data", tag="_log_train_time")                    
+
+            with dpg.group(horizontal=True):
+                dpg.add_text("Infer time: ")
+                dpg.add_text("no data", tag="_log_infer_time")
+
+            # train button
+            if self.opt.train:
+                with dpg.collapsing_header(label="Train", default_open=True):
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Train: ")
+
+                        def callback_train(sender, app_data):
+                            if self.training:
+                                self.training = False
+                                dpg.configure_item("_button_train", label="start")
+                            else:
+                                self.training = True
+                                dpg.configure_item("_button_train", label="stop")
+
+                        dpg.add_button(label="start", tag="_button_train", callback=callback_train)
+                        dpg.bind_item_theme("_button_train", theme_button)
+
+                        def callback_reset(sender, app_data):
+                            @torch.no_grad()
+                            def weight_reset(m: nn.Module):
+                                reset_parameters = getattr(m, "reset_parameters", None)
+                                if callable(reset_parameters):
+                                    m.reset_parameters()
+                            self.trainer.model.apply(fn=weight_reset)
+                            self.need_update = True
+
+                        dpg.add_button(label="reset", tag="_button_reset", callback=callback_reset)
+                        dpg.bind_item_theme("_button_reset", theme_button)
+
+
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Checkpoint: ")
+
+                        def callback_save(sender, app_data):
+                            self.trainer.save_checkpoint(full=True, best=False)
+                            self.trainer.epoch += 1 # use epoch to indicate different calls.
+                            dpg.set_value("_log_ckpt", "saved " + os.path.basename(self.trainer.stats["checkpoints"][-1]))
+
+                        dpg.add_button(label="save", tag="_button_save", callback=callback_save)
+                        dpg.bind_item_theme("_button_save", theme_button)
+
+                        dpg.add_text("", tag="_log_ckpt")
+
+
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Log: ")
+                        dpg.add_text("", tag="_log_train_log")
+
+            
+            
+            # rendering options
+            with dpg.collapsing_header(label="Options"):
+                # bg_color picker
+                def callback_change_bg(sender, app_data):
+                    self.bg_color = torch.tensor(app_data[:3], dtype=torch.float32) # only need RGB in [0, 1]
+                    self.need_update = True
+
+                dpg.add_color_edit((255, 255, 255), label="Background Color", width=200, tag="_color_editor", no_alpha=True, callback=callback_change_bg)
+
+            # debug info
+            if self.debug:
+                with dpg.collapsing_header(label="Debug"):
+                    # pose
+                    dpg.add_separator()
+                    dpg.add_text("Camera Pose:")
+                    dpg.add_text(str(self.cam.pose), tag="_log_pose")
 
 
         ### register camera handler
@@ -206,8 +310,11 @@ class NeRFGUI:
 
         while dpg.is_dearpygui_running():
             # update texture every frame
+            if self.training:
+                self.train_step()
+                self.need_update = True
             if self.need_update:
-                self.update_texture()
+                self.test_step()
                 self.need_update = False
             dpg.render_dearpygui_frame()
 
@@ -230,6 +337,8 @@ if __name__ == '__main__':
     parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
 
+    parser.add_argument('--train', action='store_true', help="train the model through GUI")
+
     opt = parser.parse_args()
 
     if opt.ff:
@@ -248,7 +357,19 @@ if __name__ == '__main__':
         cuda_ray=opt.cuda_ray,
     )        
 
-    trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, fp16=opt.fp16, use_checkpoint='latest')
+    if opt.train:
+        train_dataset = NeRFDataset(opt.path, 'train', radius=opt.radius)
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
+        criterion = torch.nn.SmoothL1Loss()
+        optimizer = lambda model: torch.optim.Adam([
+            {'name': 'encoding', 'params': list(model.encoder.parameters())},
+            {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
+        ], lr=1e-2, betas=(0.9, 0.99), eps=1e-15)
+        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[500, 1000, 1500], gamma=0.33)
+        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest')
+        trainer.train_loader = train_loader # attach dataloader to trainer
+    else:
+        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, fp16=opt.fp16, use_checkpoint='latest')
 
     gui = NeRFGUI(opt, trainer)
     gui.render()

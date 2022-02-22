@@ -43,7 +43,7 @@ if __name__ == '__main__':
     train_dataset = NeRFDataset(opt.path, 'train', radius=opt.radius)
     valid_dataset = NeRFDataset(opt.path, 'valid', downscale=2, radius=opt.radius)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
     
     model = NeRFNetwork(
