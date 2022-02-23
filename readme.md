@@ -40,7 +40,8 @@ Later development will be focused on reproducing the NeRF inference speed.
     - [x] supports training.
 * Misc.
     - [ ] improve speed (e.g., avoid the `cat` in NeRF forward)
-    - [ ] fix each epoch to 16 steps.
+    - [x] support blender dataset format.
+    - [ ] support LLFF dataset format.
 
 
 # Install
@@ -66,6 +67,9 @@ bash scripts/run_sdf.sh
 # NeRF experiment (see the shell script for more options)
 bash scripts/run_nerf.sh
 
+# NeRF GUI
+bash scripts/run_gui_nerf.sh
+
 # use different backbones
 # for the colmap dataset, the default dataset setting `--mode colmap --bound 2 --scale 0.33` is used.
 python train_nerf.py data/fox --workspace trial_nerf # fp32 mode
@@ -85,7 +89,7 @@ python gui_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray
 
 # for the blender dataset, you should add `--mode blender --bound 1 --scale 0.8`
 # --bound means the scene is assumed to be inside box[-bound, bound]
-# --scale adjusts the camera locaction to make it inside the above bounding box.
+# --scale adjusts the camera locaction to make sure it falls inside the above bounding box.
 python train_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 
 ```
 
