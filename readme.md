@@ -8,7 +8,7 @@ A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp)
 
 For the LEGO dataset, we can reach **~10FPS** at 800x800 due to efficient voxel pruning.
 
-(Tested on the fox dataset with a TITAN RTX. The inference speed is still 2-5x slower, and training speed 5-10x slower compared to the original implementation.)
+(Tested on the fox dataset with a TITAN RTX. The speed is still 2-5x slower compared to the original implementation.)
 
 **A GUI for training/visualizing NeRF is also available!**
 
@@ -67,20 +67,26 @@ bash scripts/run_sdf.sh
 bash scripts/run_nerf.sh
 
 # use different backbones
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf # fp32 mode
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann's encoder & MLP
+# for the colmap dataset, the default dataset setting `--mode colmap --bound 2 --scale 0.33` is used.
+python train_nerf.py data/fox --workspace trial_nerf # fp32 mode
+python train_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
+python train_nerf.py data/fox --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
+python train_nerf.py data/fox --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann's encoder & MLP
 
-# [NEW] use CUDA to accelerate ray marching 
-python train_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
+# use CUDA to accelerate ray marching 
+python train_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
 
-# [NEW] start a GUI for NeRF training & visualization
-# always use with --fp16 --ff/tcnn --cuda_ray for an acceptable framerate!
+# start a GUI for NeRF training & visualization
+# always use with `--fp16 --ff/tcnn --cuda_ray` for an acceptable framerate!
 # train, save, and infer.
-python gui_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_ray --train
+python gui_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --train
 # do not train, only visualizing a pretrained model.
-python gui_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff --cuda_ray
+python gui_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray
+
+# for the blender dataset, you should add `--mode blender --bound 1 --scale 0.8`
+# --bound means the scene is assumed to be inside box[-bound, bound]
+# --scale adjusts the camera locaction to make it inside the above bounding box.
+python train_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 
 ```
 
 # Difference from the original implementation
@@ -89,6 +95,7 @@ python gui_nerf.py data/fox/transforms.json --workspace trial_nerf --fp16 --ff -
 * For the voxel pruning in ray marching kernels, this repo doesn't implement the multi-scale density grid (check the `mip` keyword), and only use one `128x128x128` grid for simplicity. Instead of updating the grid every 16 steps, we update it every epoch, which may lead to slower first few epochs if using `--cuda_ray`.
 
 # Update Logs
+* 2.23: better support for the blender dataset.
 * 2.22: add GUI for NeRF training.
 * 2.21: add GUI for NeRF visualizing. 
     * With the GUI, I find the trained NeRF model is very noisy outside the seen region (unlike the original implementation)... 

@@ -20,9 +20,11 @@ if __name__ == '__main__':
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
     parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
-    
-    parser.add_argument('--radius', type=float, default=2, help="assume the camera is located around sphere(0, radius))")
+
+    parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
+    # the default setting for fox.
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
+    parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
 
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
 
@@ -40,8 +42,8 @@ if __name__ == '__main__':
 
     seed_everything(opt.seed)
 
-    train_dataset = NeRFDataset(opt.path, 'train', radius=opt.radius)
-    valid_dataset = NeRFDataset(opt.path, 'valid', downscale=2, radius=opt.radius)
+    train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale)
+    valid_dataset = NeRFDataset(opt.path, type='val', mode=opt.mode, downscale=2, scale=opt.scale)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
     valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
