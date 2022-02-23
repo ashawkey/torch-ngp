@@ -47,7 +47,7 @@ class _hash_encode(Function):
         return outputs
     
     @staticmethod
-    @once_differentiable
+    #@once_differentiable
     @custom_bwd
     def backward(ctx, grad):
 
