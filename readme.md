@@ -12,11 +12,11 @@ For the LEGO dataset, we can reach **~10FPS** at 800x800 due to efficient voxel 
 
 **A GUI for training/visualizing NeRF is also available!**
 
-![](assets/gui.jpg)
+![GUI_GIF](assets/gui.gif)
 
 SDF | NeRF
 :---: | :---:
-![](assets/armadillo.jpg) | ![](assets/fox.gif)
+![SDF_JPG](assets/armadillo.jpg) | ![FOX_GIF](assets/fox.gif)
 
 # Progress
 
