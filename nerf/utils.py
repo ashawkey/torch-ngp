@@ -255,6 +255,7 @@ class Trainer(object):
                 self.console.print(*args, **kwargs)
             if self.log_ptr: 
                 print(*args, file=self.log_ptr)
+                self.log_ptr.flush() # write immediately to file
 
     ### ------------------------------	
 
@@ -447,13 +448,13 @@ class Trainer(object):
             self.scaler.step(self.optimizer)
             self.scaler.update()
             
-            if self.ema is not None:
-                self.ema.update()
-
             if self.scheduler_update_every_step:
                 self.lr_scheduler.step()
 
             total_loss += loss.detach()
+
+        if self.ema is not None:
+            self.ema.update()
 
         average_loss = total_loss.item() / step
 
@@ -484,9 +485,17 @@ class Trainer(object):
         data = self.prepare_data(data)
         
         self.model.eval()
+
+        if self.ema is not None:
+            self.ema.store()
+            self.ema.copy_to()
+
         with torch.no_grad():
             with torch.cuda.amp.autocast(enabled=self.fp16):
                 preds, preds_depth = self.test_step(data, bg_color=bg_color)
+
+        if self.ema is not None:
+            self.ema.restore()
 
         outputs = {
             'image': preds[0].detach().cpu().numpy(),
@@ -555,9 +564,6 @@ class Trainer(object):
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optimizer)
             self.scaler.update()
-            
-            if self.ema is not None:
-                self.ema.update()
 
             if self.scheduler_update_every_step:
                 self.lr_scheduler.step()
@@ -577,6 +583,9 @@ class Trainer(object):
                 else:
                     pbar.set_description(f"loss={loss.item():.4f} ({total_loss/self.local_step:.4f})")
                 pbar.update(loader.batch_size)
+
+        if self.ema is not None:
+            self.ema.update()
 
         average_loss = total_loss / self.local_step
         self.stats["loss"].append(average_loss)
@@ -608,6 +617,10 @@ class Trainer(object):
 
         self.model.eval()
 
+        if self.ema is not None:
+            self.ema.store()
+            self.ema.copy_to()
+
         if self.local_rank == 0:
             pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{desc}: {percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
 
@@ -618,15 +631,10 @@ class Trainer(object):
                 
                 data = self.prepare_data(data)
 
-                if self.ema is not None:
-                    self.ema.store()
-                    self.ema.copy_to()
 
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth, truths, loss = self.eval_step(data)
 
-                if self.ema is not None:
-                    self.ema.restore()
 
                 # all_gather/reduce the statistics (NCCL only support all_*)
                 if self.world_size > 1:
@@ -667,6 +675,7 @@ class Trainer(object):
                     pbar.set_description(f"loss={loss.item():.4f} ({total_loss/self.local_step:.4f})")
                     pbar.update(loader.batch_size)
 
+
         average_loss = total_loss / self.local_step
         self.stats["valid_loss"].append(average_loss)
 
@@ -683,6 +692,9 @@ class Trainer(object):
                 if self.use_tensorboardX:
                     metric.write(self.writer, self.epoch, prefix="evaluate")
                 metric.clear()
+
+        if self.ema is not None:
+            self.ema.restore()
 
         self.log(f"++> Evaluate epoch {self.epoch} Finished.")
 

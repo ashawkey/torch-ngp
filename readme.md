@@ -6,7 +6,7 @@ A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp)
 * converge to a reasonable result in **~1min** (50 epochs). 
 * render a 1920x1080 image in **~1s**. 
 
-For the LEGO dataset, we can reach **~10FPS** at 800x800 due to efficient voxel pruning.
+For the LEGO dataset, we can reach **~20FPS** at 800x800 due to efficient voxel pruning.
 
 (Tested on the fox dataset with a TITAN RTX. The speed is still 2-5x slower compared to the original implementation.)
 
@@ -88,6 +88,7 @@ python gui_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box.
 python train_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 
+python gui_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 --train
 ```
 
 # Difference from the original implementation

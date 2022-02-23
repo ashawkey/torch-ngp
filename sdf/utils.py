@@ -199,6 +199,7 @@ class Trainer(object):
                 self.console.print(*args, **kwargs)
             if self.log_ptr: 
                 print(*args, file=self.log_ptr)
+                self.log_ptr.flush() # write immediately to file
 
     ### ------------------------------	
 

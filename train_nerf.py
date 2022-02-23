@@ -73,6 +73,6 @@ if __name__ == '__main__':
 
     # test dataset
     #trainer.save_mesh()
-    test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=2)
+    test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
     trainer.test(test_loader)

@@ -286,7 +286,7 @@ class NeRFRenderer(nn.Module):
 
             # composite bg & rectify depth (shade_kernel_nerf)
             image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
-            depth = (depth - near) / (far - near)
+            depth = torch.clamp(depth - near, min=0) / (far - near)
 
 
         depth = depth.reshape(B, N)
@@ -325,9 +325,10 @@ class NeRFRenderer(nn.Module):
                         tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = density
         
         # smooth by maxpooling
+        # TODO: very naive...
         tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
         tmp_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
-
+        
         # ema update
         self.density_grid = torch.maximum(self.density_grid * decay, tmp_grid)
         self.mean_density = torch.mean(self.density_grid).item()
