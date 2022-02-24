@@ -7,6 +7,24 @@ from ffmlp import FFMLP
 
 from .renderer import NeRFRenderer
 
+from torch.autograd import Function
+from torch.cuda.amp import custom_bwd, custom_fwd 
+
+# class _trunc_exp(Function):
+#     @staticmethod
+#     @custom_fwd(cast_inputs=torch.float)
+#     def forward(ctx, x):
+#         ctx.save_for_backward(x)
+#         return torch.exp(x)#.clamp(0, 1000)
+
+#     @staticmethod
+#     @custom_bwd
+#     def backward(ctx, g):
+#         x = ctx.saved_tensors[0]
+#         return g * torch.exp(x.clamp(-15, 15))
+
+# trunc_exp = _trunc_exp.apply # why doesn't work?
+
 
 class NeRFNetwork(NeRFRenderer):
     def __init__(self,
@@ -59,6 +77,7 @@ class NeRFNetwork(NeRFRenderer):
         x = self.encoder(x, size=bound)
         h = self.sigma_net(x)
 
+        #sigma = trunc_exp(h[..., 0])
         sigma = F.relu(h[..., 0])
         geo_feat = h[..., 1:]
 
@@ -89,9 +108,8 @@ class NeRFNetwork(NeRFRenderer):
         x = self.encoder(x, size=bound)
         h = self.sigma_net(x)
 
-        #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
+        #sigma = trunc_exp(h[..., 0])
         sigma = F.relu(h[..., 0])
-
         sigma = sigma.view(*prefix)
 
         return sigma

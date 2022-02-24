@@ -72,10 +72,13 @@ class NeRFGUI:
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius)
         self.trainer = trainer
         self.debug = debug
-        self.need_update = False
         self.bg_color = None # rendering bg color (TODO)
         self.training = False
-        self.step = 0
+        self.step = 0 # training step 
+
+        self.render_buffer = np.zeros((self.W, self.H, 3), dtype=np.float32)
+        self.need_update = True # camera moved, should reset accumulation
+        self.spp = 1 # sample per pixel
 
         dpg.create_context()
         self.register_dpg()
@@ -98,6 +101,7 @@ class NeRFGUI:
         t = starter.elapsed_time(ender)
 
         self.step += 1
+        self.need_update = True
 
         dpg.set_value("_log_train_time", f'{t:.4f}ms')
         dpg.set_value("_log_train_log", f'step = {self.step: 5d}, loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.6f}')
@@ -106,28 +110,37 @@ class NeRFGUI:
     def test_step(self):
         # TODO: seems we have to move data from GPU --> CPU --> GPU?
         # TODO: dynamic rendering resolution to keep it fluent.
+
+        if self.need_update or self.spp < self.opt.max_spp:
         
-        starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-        starter.record()
+            starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+            starter.record()
 
-        outputs = self.trainer.test_gui(self.cam.pose, self.cam.intrinsics, self.W, self.H, self.bg_color)
+            outputs = self.trainer.test_gui(self.cam.pose, self.cam.intrinsics, self.W, self.H, self.bg_color, self.spp)
 
-        ender.record()
-        torch.cuda.synchronize()
-        t = starter.elapsed_time(ender)
+            ender.record()
+            torch.cuda.synchronize()
+            t = starter.elapsed_time(ender)
 
-        dpg.set_value("_log_infer_time", f'{t:.4f}ms')
-        dpg.set_value("_texture", outputs['image'])
+            if self.need_update:
+                self.render_buffer = outputs['image']
+                self.spp = 1
+                self.need_update = False
+            else:
+                self.render_buffer = (self.render_buffer * self.spp + outputs['image']) / (self.spp + 1)
+                self.spp += 1
+
+            dpg.set_value("_log_infer_time", f'{t:.4f}ms')
+            dpg.set_value("_log_spp", self.spp)
+            dpg.set_value("_texture", self.render_buffer)
 
         
     def register_dpg(self):
 
         ### register texture 
 
-        raw_data = np.zeros((self.W, self.H, 3)) # value should be in [0, 1]
-
         with dpg.texture_registry(show=False):
-            dpg.add_raw_texture(self.W, self.H, raw_data, format=dpg.mvFormat_Float_rgb, tag="_texture")
+            dpg.add_raw_texture(self.W, self.H, self.render_buffer, format=dpg.mvFormat_Float_rgb, tag="_texture")
 
         ### register window
 
@@ -138,7 +151,7 @@ class NeRFGUI:
 
 
 
-        with dpg.window(label="Control", tag="_control_window", width=400, height=200):
+        with dpg.window(label="Control", tag="_control_window", width=400, height=250):
 
             # button theme
             with dpg.theme() as theme_button:
@@ -158,6 +171,10 @@ class NeRFGUI:
             with dpg.group(horizontal=True):
                 dpg.add_text("Infer time: ")
                 dpg.add_text("no data", tag="_log_infer_time")
+            
+            with dpg.group(horizontal=True):
+                dpg.add_text("SPP: ")
+                dpg.add_text("1", tag="_log_spp")
 
             # train button
             if self.opt.train:
@@ -312,10 +329,7 @@ class NeRFGUI:
             # update texture every frame
             if self.training:
                 self.train_step()
-                self.need_update = True
-            if self.need_update:
-                self.test_step()
-                self.need_update = False
+            self.test_step()
             dpg.render_dearpygui_frame()
 
 
@@ -338,7 +352,8 @@ if __name__ == '__main__':
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
     
-    parser.add_argument('--radius', type=float, default=5, help="default camera radius from center")
+    parser.add_argument('--radius', type=float, default=3, help="default camera radius from center")
+    parser.add_argument('--max_spp', type=int, default=32)
     parser.add_argument('--train', action='store_true', help="train the model through GUI")
 
     opt = parser.parse_args()

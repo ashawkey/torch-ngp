@@ -277,7 +277,7 @@ class Trainer(object):
         else:
             gt_rgb = images
 
-        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **self.conf)
     
         pred_rgb = outputs['rgb']
 
@@ -301,7 +301,7 @@ class Trainer(object):
         else:
             gt_rgb = images
             
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **self.conf)
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
@@ -310,7 +310,8 @@ class Trainer(object):
 
         return pred_rgb, pred_depth, gt_rgb, loss
 
-    def test_step(self, data, bg_color=None):  
+    # moved out bg_color and perturb for more flexible control...
+    def test_step(self, data, bg_color=None, perturb=False):  
         poses = data["pose"] # [B, 4, 4]
         intrinsics = data["intrinsic"] # [B, 3, 3]
         H, W = int(data['H'][0]), int(data['W'][0]) # get the target size...
@@ -322,7 +323,7 @@ class Trainer(object):
         if bg_color is not None:
             bg_color = bg_color.to(rays_o.device)
 
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **self.conf)
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
@@ -473,7 +474,7 @@ class Trainer(object):
 
     
     # [GUI] test on a single image
-    def test_gui(self, pose, intrinsics, W, H, bg_color=None):
+    def test_gui(self, pose, intrinsics, W, H, bg_color=None, spp=1):
 
         data = {
             'pose': pose[None, :],
@@ -492,7 +493,8 @@ class Trainer(object):
 
         with torch.no_grad():
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                preds, preds_depth = self.test_step(data, bg_color=bg_color)
+                # here spp is used as perturb random seed!
+                preds, preds_depth = self.test_step(data, bg_color=bg_color, perturb=spp)
 
         if self.ema is not None:
             self.ema.restore()
@@ -782,8 +784,10 @@ class Trainer(object):
         self.epoch = checkpoint_dict['epoch']
 
         if self.model.cuda_ray:
-            self.model.mean_count = checkpoint_dict['mean_count']
-            self.model.mean_density = checkpoint_dict['mean_density']
+            if 'mean_count' in checkpoint_dict:
+                self.model.mean_count = checkpoint_dict['mean_count']
+            if 'mean_density' in checkpoint_dict:
+                self.model.mean_density = checkpoint_dict['mean_density']
         
         if self.optimizer and  'optimizer' in checkpoint_dict:
             try:

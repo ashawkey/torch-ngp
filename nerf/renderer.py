@@ -108,7 +108,7 @@ class NeRFRenderer(nn.Module):
     def density(self, x, bound):
         raise NotImplementedError()
 
-    def run(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color):
+    def run(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color, perturb):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # bg_color: [3] in range [0, 1]
         # return: image: [B, N, 3], depth: [B, N]
@@ -127,7 +127,7 @@ class NeRFRenderer(nn.Module):
 
         # perturb z_vals
         sample_dist = (far - near) / num_steps
-        if self.training:
+        if perturb:
             z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
             #z_vals = z_vals.clamp(near, far) # avoid out of bounds pts.
 
@@ -209,7 +209,7 @@ class NeRFRenderer(nn.Module):
         return depth, image
 
 
-    def run_cuda(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color):
+    def run_cuda(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color, perturb):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: image: [B, N, 3], depth: [B, N]
 
@@ -225,7 +225,7 @@ class NeRFRenderer(nn.Module):
             counter.zero_() # set to 0
             self.local_step += 1
 
-            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, self.training, 128, False)
+            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, perturb, 128, False)
             sigmas, rgbs = self(xyzs, dirs, bound=bound)
             depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound, bg_color)
 
@@ -275,7 +275,7 @@ class NeRFRenderer(nn.Module):
                 # decide compact_steps
                 n_step = max(min(B * N // n_alive, 8), 1)
 
-                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, bound, self.density_grid, self.mean_density, near, far, 128)
+                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, bound, self.density_grid, self.mean_density, near, far, 128, perturb)
                 sigmas, rgbs = self(xyzs, dirs, bound=bound)
                 raymarching.composite_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], sigmas, rgbs, deltas, weights_sum, depth, image)
 
@@ -343,7 +343,7 @@ class NeRFRenderer(nn.Module):
         #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f} | [step counter] mean={self.mean_count}')
 
 
-    def render(self, rays_o, rays_d, bound=1, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, **kwargs):
+    def render(self, rays_o, rays_d, bound=1, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, perturb=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
 
@@ -364,12 +364,12 @@ class NeRFRenderer(nn.Module):
                 head = 0
                 while head < N:
                     tail = min(head + max_ray_batch, N)
-                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], bound, num_steps, upsample_steps, bg_color)
+                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], bound, num_steps, upsample_steps, bg_color, perturb)
                     depth[b:b+1, head:tail] = depth_
                     image[b:b+1, head:tail] = image_
                     head += max_ray_batch
         else:
-            depth, image = _run(rays_o, rays_d, bound, num_steps, upsample_steps, bg_color)
+            depth, image = _run(rays_o, rays_d, bound, num_steps, upsample_steps, bg_color, perturb)
 
         results = {}
         results['depth'] = depth
