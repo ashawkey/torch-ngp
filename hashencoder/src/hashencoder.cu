@@ -244,6 +244,14 @@ __global__ void kernel_grid_backward(
     const float scale = exp2f(level * S) * H - 1.0f;
     const uint32_t resolution = (uint32_t)ceil(scale) + 1;
 
+    // check input range (should be in [0, 1])
+    #pragma unroll
+    for (uint32_t d = 0; d < D; d++) {
+        if (inputs[d] < 0 || inputs[d] > 1) {
+            return; // grad is init as 0, so we simply return.
+        }
+    }
+
     // calculate coordinate
     float pos[D];
     uint32_t pos_grid[D];

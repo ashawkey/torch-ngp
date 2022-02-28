@@ -102,7 +102,7 @@ class HashEncoder(nn.Module):
         for i in range(num_levels):
             resolution = int(np.ceil(base_resolution * per_level_scale ** i))
             params_in_level = min(self.max_params, (resolution + 1) ** input_dim) # limit max number
-            params_in_level = int(params_in_level / 8) * 8 # make divisible
+            #params_in_level = np.ceil(params_in_level / 8) * 8 # make divisible
             offsets.append(offset)
             offset += params_in_level
         offsets.append(offset)
