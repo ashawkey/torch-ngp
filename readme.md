@@ -99,7 +99,7 @@ python gui_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff -
 * For the voxel pruning in ray marching kernels, this repo doesn't implement the multi-scale density grid (check the `mip` keyword), and only use one `128x128x128` grid for simplicity. Instead of updating the grid every 16 steps, we update it every epoch, which may lead to slower first few epochs if using `--cuda_ray`.
 
 # Update Logs
-* 2.28: density_grid now stores density on the voxel center (with randomness), instead of on the grid. This should improve the rendering quality, such as the black stride in the lego scene.
+* 2.28: density_grid now stores density on the voxel center (with randomness), instead of on the grid. This should improve the rendering quality, such as the black strips in the lego scene.
 * 2.23: better support for the blender dataset.
 * 2.22: add GUI for NeRF training.
 * 2.21: add GUI for NeRF visualizing. 

@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
     print(model)
 
-    criterion = torch.nn.SmoothL1Loss()
+    criterion = torch.nn.HuberLoss(delta=0.1)
 
     optimizer = lambda model: torch.optim.Adam([
         {'name': 'encoding', 'params': list(model.encoder.parameters())},
