@@ -92,7 +92,7 @@ class NeRFRenderer(nn.Module):
         self.cuda_ray = cuda_ray
         if cuda_ray:
             # density grid
-            density_grid = torch.zeros([128 + 1] * 3) # +1 because we save values at grid
+            density_grid = torch.zeros([128] * 3)
             self.register_buffer('density_grid', density_grid)
             self.mean_density = 0
             self.iter_density = 0
@@ -303,10 +303,12 @@ class NeRFRenderer(nn.Module):
         
         ### update density grid
         resolution = self.density_grid.shape[0]
+
+        half_grid_size = bound / resolution
         
-        X = torch.linspace(-bound, bound, resolution).split(128)
-        Y = torch.linspace(-bound, bound, resolution).split(128)
-        Z = torch.linspace(-bound, bound, resolution).split(128)
+        X = torch.linspace(-bound + half_grid_size, bound - half_grid_size, resolution).split(128)
+        Y = torch.linspace(-bound + half_grid_size, bound - half_grid_size, resolution).split(128)
+        Z = torch.linspace(-bound + half_grid_size, bound - half_grid_size, resolution).split(128)
 
         tmp_grid = torch.zeros_like(self.density_grid)
         with torch.no_grad():
@@ -314,20 +316,19 @@ class NeRFRenderer(nn.Module):
                 for yi, ys in enumerate(Y):
                     for zi, zs in enumerate(Z):
                         lx, ly, lz = len(xs), len(ys), len(zs)
+                        # construct points
                         xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
                         pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3]
+                        # add noise in [-hgs, hgs]
+                        pts += (torch.rand_like(pts) * 2 - 1) * half_grid_size
                         # manual padding for ffmlp
                         n = pts.shape[0]
                         pad_n = 128 - (n % 128)
                         if pad_n != 0:
                             pts = torch.cat([pts, torch.zeros(pad_n, 3)], dim=0)
+                        # query density
                         density = self.density(pts.to(tmp_grid.device), bound)[:n].reshape(lx, ly, lz).detach()
                         tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = density
-        
-        # smooth by maxpooling
-        # TODO: very naive...
-        tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
-        tmp_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
         
         # ema update
         self.density_grid = torch.maximum(self.density_grid * decay, tmp_grid)

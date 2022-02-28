@@ -39,10 +39,8 @@ inline __host__ __device__ float clamp(float x, const float min, const float max
     return fminf(max, fmaxf(min, x));
 }
 
-__host__ __device__ void swapf(float& a, float& b) {
-	float c = a; 
-    a = b; 
-    b = c;
+inline __host__ __device__ void swapf(float& a, float& b) {
+	float c = a; a = b; b = c;
 }
 
 ////////////////////////////////////////////////////
@@ -96,12 +94,12 @@ __global__ void kernel_march_rays_train(
     float far_z = (bound - oz) * rdz;
     if (near_z > far_z) swapf(near_z, far_z);
 
-    const float near = fmaxf(fmaxf(near_x, fmaxf(near_y, near_z)), 0.05f); // hardcoded minimal near distance
+    const float near = fmaxf(fmaxf(near_x, fmaxf(near_y, near_z)), MIN_NEAR()); // hardcoded minimal near distance
     const float far = fminf(far_x, fminf(far_y, far_z));
 
     const float dt_min = MIN_STEPSIZE() * bound;
     const float dt_max = 2 * bound / (H - 1);
-    const float dt_gamma = DT_GAMMA();
+    const float dt_gamma = bound > 1 ? DT_GAMMA() : 0.0f;
 
     float t0 = near;
     if (perturb) {
@@ -121,9 +119,9 @@ __global__ void kernel_march_rays_train(
         const float z = clamp(oz + t * dz, -bound, bound);
 
         // convert to nearest grid position
-        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1); range in [0, H-1]
-        const int ny = floorf(0.5 * (y * rbound + 1) * (H - 1));
-        const int nz = floorf(0.5 * (z * rbound + 1) * (H - 1));
+        const int nx = clamp(0.5 * (x * rbound + 1) * H, 0.0f, (float)(H - 1));
+        const int ny = clamp(0.5 * (y * rbound + 1) * H, 0.0f, (float)(H - 1));
+        const int nz = clamp(0.5 * (z * rbound + 1) * H, 0.0f, (float)(H - 1));
 
         const uint32_t index = nx * H * H + ny * H + nz;
         const float density = grid[index];
@@ -180,9 +178,9 @@ __global__ void kernel_march_rays_train(
         const float z = clamp(oz + t * dz, -bound, bound);
 
         // convert to nearest grid position
-        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1); range in [0, H-1]
-        const int ny = floorf(0.5 * (y * rbound + 1) * (H - 1));
-        const int nz = floorf(0.5 * (z * rbound + 1) * (H - 1));
+        const int nx = clamp(0.5 * (x * rbound + 1) * H, 0.0f, (float)(H - 1));
+        const int ny = clamp(0.5 * (y * rbound + 1) * H, 0.0f, (float)(H - 1));
+        const int nz = clamp(0.5 * (z * rbound + 1) * H, 0.0f, (float)(H - 1));
 
         // query grid
         const uint32_t index = nx * H * H + ny * H + nz;
@@ -204,7 +202,6 @@ __global__ void kernel_march_rays_train(
             dirs += 3;
             deltas++;
             step++;
-
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
@@ -363,7 +360,7 @@ __global__ void kernel_composite_rays_train_backward(
 
     while (step < num_steps) {
         
-        if (T < 1e-4f) break;
+        //if (T < 1e-4f) break;
 
         const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
         const scalar_t weight = alpha * T;
@@ -536,7 +533,7 @@ __global__ void kernel_march_rays(
 
     const float dt_min = MIN_STEPSIZE() * bound;
     const float dt_max = 2 * bound / (H - 1);
-    const float dt_gamma = DT_GAMMA();
+    const float dt_gamma = bound > 1 ? DT_GAMMA() : 0.0f;
 
     // march for n_step steps, record points
     uint32_t step = 0;
@@ -556,9 +553,9 @@ __global__ void kernel_march_rays(
         const float z = clamp(oz + t * dz, -bound, bound);
 
         // convert to nearest grid position
-        const int nx = floorf(0.5 * (x * rbound + 1) * (H - 1)); // (x + bound) / (2 * bound) * (H - 1); range in [0, H-1]
-        const int ny = floorf(0.5 * (y * rbound + 1) * (H - 1));
-        const int nz = floorf(0.5 * (z * rbound + 1) * (H - 1));
+        const int nx = clamp(0.5 * (x * rbound + 1) * H, 0.0f, (float)(H - 1));
+        const int ny = clamp(0.5 * (y * rbound + 1) * H, 0.0f, (float)(H - 1));
+        const int nz = clamp(0.5 * (z * rbound + 1) * H, 0.0f, (float)(H - 1));
 
         // query grid
         const uint32_t index = nx * H * H + ny * H + nz;
