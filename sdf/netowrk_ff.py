@@ -37,17 +37,11 @@ class SDFNetwork(nn.Module):
     def forward(self, x):
         # x: [B, 3]
 
-        #print('forward: x', x.shape, x.dtype, x.min().item(), x.max().item())
-
         x = self.encoder(x)
-
-        #print('forward: enc(x)', x.shape, x.dtype, x.min().item(), x.max().item())
 
         h = self.backbone(x)
 
         if self.clip_sdf is not None:
             h = h.clamp(-self.clip_sdf, self.clip_sdf)
-
-        #print('forward: y', h.shape, h.dtype, h.min().item(), h.max().item())
 
         return h

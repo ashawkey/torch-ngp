@@ -570,20 +570,21 @@ class Trainer(object):
             if self.scheduler_update_every_step:
                 self.lr_scheduler.step()
 
-            total_loss += loss.item()
+            loss_val = loss.item()
+            total_loss += loss_val
 
             if self.local_rank == 0:
                 for metric in self.metrics:
                     metric.update(preds, truths)
                         
                 if self.use_tensorboardX:
-                    self.writer.add_scalar("train/loss", loss.item(), self.global_step)
+                    self.writer.add_scalar("train/loss", loss_val, self.global_step)
                     self.writer.add_scalar("train/lr", self.optimizer.param_groups[0]['lr'], self.global_step)
 
                 if self.scheduler_update_every_step:
-                    pbar.set_description(f"loss={loss.item():.4f} ({total_loss/self.local_step:.4f}), lr={self.optimizer.param_groups[0]['lr']:.6f}")
+                    pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f}), lr={self.optimizer.param_groups[0]['lr']:.6f}")
                 else:
-                    pbar.set_description(f"loss={loss.item():.4f} ({total_loss/self.local_step:.4f})")
+                    pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                 pbar.update(loader.batch_size)
 
         if self.ema is not None:
@@ -654,8 +655,9 @@ class Trainer(object):
                     truths_list = [torch.zeros_like(truths).to(self.device) for _ in range(self.world_size)] # [[B, ...], [B, ...], ...]
                     dist.all_gather(truths_list, truths)
                     truths = torch.cat(truths_list, dim=0)
-
-                total_loss += loss.item()
+                
+                loss_val = loss.item()
+                total_loss += loss_val
 
                 # only rank = 0 will perform evaluation.
                 if self.local_rank == 0:
@@ -674,7 +676,7 @@ class Trainer(object):
                     cv2.imwrite(save_path_depth, (preds_depth[0].detach().cpu().numpy() * 255).astype(np.uint8))
                     #cv2.imwrite(save_path_gt, cv2.cvtColor((truths[0].detach().cpu().numpy() * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
 
-                    pbar.set_description(f"loss={loss.item():.4f} ({total_loss/self.local_step:.4f})")
+                    pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                     pbar.update(loader.batch_size)
 
 
