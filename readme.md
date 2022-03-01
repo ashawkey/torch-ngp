@@ -36,11 +36,10 @@ Later development will be focused on reproducing the NeRF inference speed.
 * NeRF GUI
     - [x] supports training.
 * Misc.
-    - [ ] improve rendering quality of cuda raymarching!
+    - [x] improve rendering quality of cuda raymarching!
     - [ ] improve speed (e.g., avoid the `cat` in NeRF forward)
-    - [ ] support visualize/supervise normals.
+    - [ ] support visualize/supervise normals (add rendering mode option).
     - [x] support blender dataset format.
-    - [ ] support LLFF dataset format.
 
 
 # Install
