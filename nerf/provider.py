@@ -46,14 +46,27 @@ class NeRFDataset(Dataset):
 
         # load nerf-compatible format data.
         if mode == 'colmap':
-            transform_path = os.path.join(path, 'transforms.json')
+            with open(os.path.join(path, 'transforms.json'), 'r') as f:
+                transform = json.load(f)
         elif mode == 'blender':
-            transform_path = os.path.join(path, f'transforms_{type}.json')
+            # load all splits (train/valid/test), this is what instant-ngp in fact does...
+            if type == 'all':
+                transform_paths = glob.glob(os.path.join(path, '*.json'))
+                transform = None
+                for transform_path in transform_paths:
+                    with open(transform_path, 'r') as f:
+                        tmp_transform = json.load(f)
+                        if transform is None:
+                            transform = tmp_transform
+                        else:
+                            transform['frames'].extend(tmp_transform['frames'])
+            # only load one specified split
+            else:
+                with open(os.path.join(path, f'transforms_{type}.json'), 'r') as f:
+                    transform = json.load(f)
+
         else:
             raise NotImplementedError(f'unknown dataset mode: {mode}')
-
-        with open(transform_path, 'r') as f:
-            transform = json.load(f)
 
         # load image size
         if 'h' in transform and 'w' in transform:

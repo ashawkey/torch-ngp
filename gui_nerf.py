@@ -353,7 +353,7 @@ if __name__ == '__main__':
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
     
     parser.add_argument('--radius', type=float, default=3, help="default camera radius from center")
-    parser.add_argument('--max_spp', type=int, default=32)
+    parser.add_argument('--max_spp', type=int, default=64)
     parser.add_argument('--train', action='store_true', help="train the model through GUI")
 
     opt = parser.parse_args()
@@ -375,14 +375,14 @@ if __name__ == '__main__':
     )        
 
     if opt.train:
-        train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale)
+        train_dataset = NeRFDataset(opt.path, type='all', mode=opt.mode, scale=opt.scale)
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
-        criterion = torch.nn.SmoothL1Loss()
+        criterion = torch.nn.HuberLoss(delta=0.1)
         optimizer = lambda model: torch.optim.Adam([
             {'name': 'encoding', 'params': list(model.encoder.parameters())},
             {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
         ], lr=1e-2, betas=(0.9, 0.99), eps=1e-15)
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[500, 1000, 1500], gamma=0.33)
+        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000], gamma=0.33)
         trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, use_checkpoint='latest')
         trainer.train_loader = train_loader # attach dataloader to trainer
     else:
