@@ -59,43 +59,41 @@ Please download and put them under `./data`.
 First time running will take some time to compile the CUDA extensions.
 
 ```bash
-# SDF experiment
-bash scripts/run_sdf.sh
-
-# NeRF experiment (see the shell script for more options)
-bash scripts/run_nerf.sh
-
-# NeRF GUI
-bash scripts/run_gui_nerf.sh
-
-# use different backbones
+# train with different backbones (with slower pytorch ray marching)
 # for the colmap dataset, the default dataset setting `--mode colmap --bound 2 --scale 0.33` is used.
-python train_nerf.py data/fox --workspace trial_nerf # fp32 mode
-python train_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
-python train_nerf.py data/fox --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
-python train_nerf.py data/fox --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann's encoder & MLP
+python main_nerf.py data/fox --workspace trial_nerf # fp32 mode
+python main_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann's encoder & MLP
 
-# use CUDA to accelerate ray marching 
-python train_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
+# test mode
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --test
+
+# use CUDA to accelerate ray marching (much more faster!)
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
 
 # start a GUI for NeRF training & visualization
 # always use with `--fp16 --ff/tcnn --cuda_ray` for an acceptable framerate!
-# train, save, and infer.
-python gui_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --train
-# do not train, only visualizing a pretrained model.
-python gui_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
+
+# test mode for GUI
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui --test
 
 # for the blender dataset, you should add `--mode blender --bound 1 --scale 0.8`
+# --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box.
-python train_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 
-python gui_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 --train
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 --gui
 ```
+
+check the `scripts` directory for more provided examples.
 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implement the linear interpolation mode.
 * For the voxel pruning in ray marching kernels, this repo doesn't implement the multi-scale density grid (check the `mip` keyword), and only use one `128x128x128` grid for simplicity. Instead of updating the grid every 16 steps, we update it every epoch, which may lead to slower first few epochs if using `--cuda_ray`.
+* For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
 # Update Logs
 * 3.1: add type='all' for blender dataset (load train + val + test data), which is the default behavior of instant-ngp.
