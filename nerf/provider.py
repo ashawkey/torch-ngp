@@ -91,6 +91,7 @@ class NeRFDataset(Dataset):
             slerp = Slerp([0, 1], rots)
 
             self.poses = []
+            self.images = None
             for i in range(n_test + 1):
                 ratio = np.sin(((i / n_test) - 0.5) * np.pi) * 0.5 + 0.5
                 pose = np.eye(4, dtype=np.float32)
@@ -135,11 +136,13 @@ class NeRFDataset(Dataset):
                 self.images.append(image)
             
         self.poses = np.stack(self.poses, axis=0)
-        self.images = np.stack(self.images, axis=0)
+        if self.images is not None:
+            self.images = np.stack(self.images, axis=0)
 
         if preload:
             self.poses = torch.from_numpy(self.poses).cuda()
-            self.images = torch.from_numpy(self.images).cuda()
+            if self.images is not None:
+                self.images = torch.from_numpy(self.images).cuda()
 
         # load intrinsics
         
