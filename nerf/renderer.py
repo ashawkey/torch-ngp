@@ -108,6 +108,18 @@ class NeRFRenderer(nn.Module):
     def density(self, x, bound):
         raise NotImplementedError()
 
+    def reset_extra_state(self):
+        if not self.cuda_ray:
+            return 
+        # density grid
+        self.density_grid.zero_()
+        self.mean_density = 0
+        self.iter_density = 0
+        # step counter
+        self.step_counter.zero_()
+        self.mean_count = 0
+        self.local_step = 0
+
     def run(self, rays_o, rays_d, bound, num_steps, upsample_steps, bg_color, perturb):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # bg_color: [3] in range [0, 1]

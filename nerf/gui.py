@@ -9,13 +9,13 @@ from nerf.utils import *
 
 
 class OrbitCamera:
-    def __init__(self, W, H, r=2, fovy=30):
+    def __init__(self, W, H, r=2, fovy=60):
         self.W = W
         self.H = H
         self.radius = r # camera distance from center
-        self.fovy = fovy
+        self.fovy = fovy # in degree
         self.center = np.array([0, 0, 0], dtype=np.float32) # look at this point
-        self.rot = R.from_quat([0, 0, 0, 1]) # scalar last
+        self.rot = R.from_quat([1, 0, 0, 0]) # init camera matrix: [[1, 0, 0], [0, -1, 0], [0, 0, 1]] (to suit ngp convention)
         self.up = np.array([0, 1, 0], dtype=np.float32) # need to be normalized!
 
     # pose
@@ -36,7 +36,7 @@ class OrbitCamera:
     @property
     def intrinsics(self):
         res = np.eye(3, dtype=np.float32)
-        focal = self.H / (2 * np.tan(self.fovy / 2))
+        focal = self.H / (2 * np.tan(np.radians(self.fovy) / 2))
         res[0, 0] = res[1, 1] = focal
         res[0, 2] = self.W // 2
         res[1, 2] = self.H // 2
@@ -46,7 +46,7 @@ class OrbitCamera:
         # rotate along camera up/side axis!
         side = self.rot.as_matrix()[:3, 0] # why this is side --> ? # already normalized.
         rotvec_x = self.up * np.radians(-0.1 * dx)
-        rotvec_y = side * np.radians(0.1 * dy)
+        rotvec_y = side * np.radians(-0.1 * dy)
         self.rot = R.from_rotvec(rotvec_x) * R.from_rotvec(rotvec_y) * self.rot
 
         # wrong: rotate along global x/y axis
@@ -57,7 +57,7 @@ class OrbitCamera:
 
     def pan(self, dx, dy, dz=0):
         # pan in camera coordinate system (careful on the sensitivity!)
-        self.center += 0.001 * self.rot.as_matrix()[:3, :3] @ np.array([-dx, -dy, dz])
+        self.center += 0.001 * self.rot.as_matrix()[:3, :3] @ np.array([dx, dy, dz])
 
         # wrong: pan in global coordinate system
         #self.center += 0.001 * np.array([-dx, -dy, dz])
@@ -200,6 +200,7 @@ class NeRFGUI:
                                 if callable(reset_parameters):
                                     m.reset_parameters()
                             self.trainer.model.apply(fn=weight_reset)
+                            self.trainer.model.reset_extra_state() # for cuda_ray density_grid and step_counter
                             self.need_update = True
 
                         dpg.add_button(label="reset", tag="_button_reset", callback=callback_reset)
@@ -234,6 +235,13 @@ class NeRFGUI:
                     self.need_update = True
 
                 dpg.add_color_edit((255, 255, 255), label="Background Color", width=200, tag="_color_editor", no_alpha=True, callback=callback_change_bg)
+
+                # fov slider
+                def callback_set_fovy(sender, app_data):
+                    self.cam.fovy = app_data
+                    self.need_update = True
+
+                dpg.add_slider_int(label="FoV (vertical)", min_value=1, max_value=120, format="%d deg", default_value=self.cam.fovy, callback=callback_set_fovy)
 
             # debug info
             if self.debug:

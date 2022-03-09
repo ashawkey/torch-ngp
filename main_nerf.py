@@ -34,7 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('--gui', action='store_true', help="start a GUI")
     parser.add_argument('--W', type=int, default=800, help="GUI width")
     parser.add_argument('--H', type=int, default=800, help="GUI height")
-    parser.add_argument('--radius', type=float, default=3, help="default GUI camera radius from center")
+    parser.add_argument('--radius', type=float, default=5, help="default GUI camera radius from center")
     parser.add_argument('--max_spp', type=int, default=64, help="GUI rendering max sample per pixel")
 
     opt = parser.parse_args()
@@ -69,7 +69,7 @@ if __name__ == '__main__':
             gui.render()
         
         else:
-            test_dataset = NeRFDataset(opt.path, 'test', radius=opt.radius, n_test=10)
+            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale)
             test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
 
             trainer.test(test_loader)
