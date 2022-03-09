@@ -129,7 +129,7 @@ composite_rays_train = _composite_rays_train.apply
 #   xyzs, dirs, dt: float [n_alive * n_step, 3/3/2], output
 class _march_rays(Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.half)
+    #@custom_fwd(cast_inputs=torch.float32)
     def forward(ctx, n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, density_grid, mean_density, near, far, align=-1, perturb=False):
         
         rays_o = rays_o.contiguous().view(-1, 3)
@@ -162,7 +162,7 @@ march_rays = _march_rays.apply
 #   depth, image, weight: float [N, 1/3/1]
 class _composite_rays(Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.half)
+    @custom_fwd(cast_inputs=torch.float32) # need to cast sigmas & rgbs to float
     def forward(ctx, n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights, depth, image):
         _backend.composite_rays(n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights, depth, image)
 
@@ -178,7 +178,7 @@ composite_rays = _composite_rays.apply
 #   rays_t
 class _compact_rays(Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.half)
+    #@custom_fwd(cast_inputs=torch.float32)
     def forward(ctx, n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter):
         _backend.compact_rays(n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter)
 

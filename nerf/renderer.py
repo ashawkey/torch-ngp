@@ -242,14 +242,15 @@ class NeRFRenderer(nn.Module):
             depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound, bg_color)
 
         else:
-
-            # xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, None, self.mean_count, self.training, 128, True)
+            # xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, False, 128, True)
             # sigmas, rgbs = self(xyzs, dirs, bound=bound)
             # depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound, bg_color)
 
             # allocate outputs 
             # if use autocast, must init as half so it won't be autocasted and lose reference.
-            dtype = torch.half if torch.is_autocast_enabled() else torch.float32
+            #dtype = torch.half if torch.is_autocast_enabled() else torch.float32
+            # output should always be float32! only network inference uses half.
+            dtype = torch.float32
             
             weights_sum = torch.zeros(B * N, dtype=dtype, device=device)
             depth = torch.zeros(B * N, dtype=dtype, device=device)

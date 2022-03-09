@@ -99,13 +99,14 @@ check the `scripts` directory for more provided examples.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
 # Update Logs
+* 3.9: add fov for gui, 
+    * known issue: if the camera is too far-away or fov is too small, the rendered image will be mosaicked. Turning off fp16 can remove the mosaic, so it is most likely related to rays precision.
 * 3.1: add type='all' for blender dataset (load train + val + test data), which is the default behavior of instant-ngp.
 * 2.28: density_grid now stores density on the voxel center (with randomness), instead of on the grid. This should improve the rendering quality, such as the black strips in the lego scene.
 * 2.23: better support for the blender dataset.
 * 2.22: add GUI for NeRF training.
 * 2.21: add GUI for NeRF visualizing. 
-    * With the GUI, I find the trained NeRF model is very noisy outside the seen region (unlike the original implementation)... 
-    * check `mark_untrained_density_grid`, but still, they looks much better even with the noises.
+    * known issue: noisy artefacts outside the camera covered region. It is related to `mark_untrained_density_grid` in instant-ngp.
 * 2.20: cuda raymarching is finally stable now!
 * 2.15: add the official [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) as an alternative backend.    
 * 2.10: add cuda_ray, can train/infer faster, but performance is worse currently.
