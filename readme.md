@@ -50,7 +50,9 @@ pip install -r requirements.txt
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ```
 Tested on Ubuntu with torch 1.10 & CUDA 11.3 on TITAN RTX.
-Currently, the supported CUDA architecture is at least `70` to use `--ff`. For GPUs with lower architecture, `--tcnn` can be used, but the speed will still be slower.
+
+Currently, `--ff` only supports GPUs with CUDA architecture `>= 70`.
+For GPUs with lower architecture, `--tcnn` can still be used, but the speed will be slower compared to more recent GPUs.
 
 # Usage
 

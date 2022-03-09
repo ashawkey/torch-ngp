@@ -101,8 +101,12 @@ class NeRFDataset(Dataset):
 
         else:
             # for colmap, manually split a valid set (the first frame).
-            if mode == 'colmap':    
-                frames = frames[1:] if type == 'train' else frames[:1]
+            if mode == 'colmap':
+                if type == 'train':
+                    frames = frames[1:]
+                elif type == 'val':
+                    frames = frames[:1]
+                # else 'all': use all frames
             
             self.poses = []
             self.images = []
@@ -170,6 +174,7 @@ class NeRFDataset(Dataset):
         if preload:
             self.intrinsic = torch.from_numpy(self.intrinsic).cuda()
 
+
     def __len__(self):
         return len(self.poses)
 
@@ -185,7 +190,7 @@ class NeRFDataset(Dataset):
             # only string can bypass the default collate, so we don't need to call item: https://github.com/pytorch/pytorch/blob/67a275c29338a6c6cc405bf143e63d53abe600bf/torch/utils/data/_utils/collate.py#L84
             results['H'] = str(self.H)
             results['W'] = str(self.W)
-            return results
         else:
             results['image'] = self.images[index]
-            return results
+            
+        return results
