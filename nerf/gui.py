@@ -1,10 +1,8 @@
 import torch
-import argparse
 import numpy as np
 import dearpygui.dearpygui as dpg
 from scipy.spatial.transform import Rotation as R
 
-from nerf.provider import NeRFDataset
 from nerf.utils import *
 
 
