@@ -27,6 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
+    parser.add_argument('--preload', action='store_true', help="preload all data into GPU, fasten training but use more GPU memory")
     # (default is for the fox dataset)
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
@@ -69,7 +70,7 @@ if __name__ == '__main__':
             gui.render()
         
         else:
-            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale)
+            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale, preload=opt.preload)
             test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
 
             trainer.test(test_loader)
@@ -91,7 +92,7 @@ if __name__ == '__main__':
         # need different dataset type for GUI/CMD mode.
 
         if opt.gui:
-            train_dataset = NeRFDataset(opt.path, type='all', mode=opt.mode, scale=opt.scale)
+            train_dataset = NeRFDataset(opt.path, type='all', mode=opt.mode, scale=opt.scale, preload=opt.preload)
             train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
             trainer.train_loader = train_loader # attach dataloader to trainer
 
@@ -99,15 +100,15 @@ if __name__ == '__main__':
             gui.render()
         
         else:
-            train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale)
+            train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale, preload=opt.preload)
             train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
-            valid_dataset = NeRFDataset(opt.path, type='val', mode=opt.mode, downscale=2, scale=opt.scale)
+            valid_dataset = NeRFDataset(opt.path, type='val', mode=opt.mode, downscale=2, scale=opt.scale, preload=opt.preload)
             valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
 
             trainer.train(train_loader, valid_loader, 200)
 
             # also test
-            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale)
+            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale, preload=opt.preload)
             test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
 
             trainer.test(test_loader)

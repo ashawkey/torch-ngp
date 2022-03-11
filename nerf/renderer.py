@@ -227,7 +227,7 @@ class NeRFRenderer(nn.Module):
         device = rays_o.device
 
         if bg_color is None:
-            bg_color = torch.ones(3, dtype=rays_o.dtype, device=device)
+            bg_color = 1
 
         if self.training:
             # setup counter
@@ -237,12 +237,16 @@ class NeRFRenderer(nn.Module):
 
             xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, perturb, 128, False)
             sigmas, rgbs = self(xyzs, dirs, bound=bound)
-            depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound, bg_color)
+            weights_sum, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound)
+
+            # composite bg (shade_kernel_nerf)
+            image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
+            depth = None # currently training do not requires depth
 
         else:
             # xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, False, 128, True)
             # sigmas, rgbs = self(xyzs, dirs, bound=bound)
-            # depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound, bg_color)
+            # depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, bound)
 
             # allocate outputs 
             # if use autocast, must init as half so it won't be autocasted and lose reference.
@@ -300,8 +304,9 @@ class NeRFRenderer(nn.Module):
             depth = torch.clamp(depth - near, min=0) / (far - near)
 
 
-        depth = depth.reshape(B, N)
         image = image.reshape(B, N, 3)
+        if depth is not None:
+            depth = depth.reshape(B, N)
 
         return depth, image
 

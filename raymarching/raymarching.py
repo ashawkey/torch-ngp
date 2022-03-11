@@ -66,11 +66,11 @@ march_rays_train = _march_rays_train.apply
 
 ### accumulate rays (need backward)
 # inputs: sigmas: [M], rgbs: [M, 3], rays: [N, 3], points [M, 7]
-# outputs: depth: [N], image: [N, 3]
+# outputs: weights_sum: [N], image: [N, 3]
 class _composite_rays_train(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.half)
-    def forward(ctx, sigmas, rgbs, deltas, rays, bound, bg_color):
+    def forward(ctx, sigmas, rgbs, deltas, rays, bound):
         
         sigmas = sigmas.contiguous()
         rgbs = rgbs.contiguous()
@@ -80,30 +80,33 @@ class _composite_rays_train(Function):
         M = sigmas.shape[0]
         N = rays.shape[0]
 
-        depth = torch.empty(N, dtype=sigmas.dtype, device=sigmas.device)
+        weights_sum = torch.empty(N, dtype=sigmas.dtype, device=sigmas.device)
         image = torch.empty(N, 3, dtype=sigmas.dtype, device=sigmas.device)
 
-        _backend.composite_rays_train_forward(sigmas, rgbs, deltas, rays, bound, bg_color, M, N, depth, image)
+        _backend.composite_rays_train_forward(sigmas, rgbs, deltas, rays, bound, M, N, weights_sum, image)
 
-        ctx.save_for_backward(sigmas, rgbs, deltas, rays, image, bg_color)
+        ctx.save_for_backward(sigmas, rgbs, deltas, rays, weights_sum, image)
         ctx.dims = [M, N, bound]
 
-        return depth, image
+        return weights_sum, image
     
     @staticmethod
     @custom_bwd
-    def backward(ctx, grad_depth, grad_image):
-        # grad_depth, grad_image: [N, 3]
+    def backward(ctx, grad_weights_sum, grad_image):
 
+        grad_weights_sum = grad_weights_sum.contiguous()
         grad_image = grad_image.contiguous()
 
-        sigmas, rgbs, deltas, rays, image, bg_color = ctx.saved_tensors
+        #print('grad_weights_sum', grad_weights_sum.shape, grad_weights_sum.dtype, grad_weights_sum.min().item(), grad_weights_sum.max().item(), grad_weights_sum.requires_grad)
+        #print('grad_image', grad_image.shape, grad_image.dtype, grad_image.min().item(), grad_image.max().item(), grad_image.requires_grad)
+
+        sigmas, rgbs, deltas, rays, weights_sum, image = ctx.saved_tensors
         M, N, bound = ctx.dims
-        
+   
         grad_sigmas = torch.zeros_like(sigmas)
         grad_rgbs = torch.zeros_like(rgbs)
 
-        _backend.composite_rays_train_backward(grad_image, sigmas, rgbs, deltas, rays, image, bound, M, N, grad_sigmas, grad_rgbs)
+        _backend.composite_rays_train_backward(grad_weights_sum, grad_image, sigmas, rgbs, deltas, rays, weights_sum, image, bound, M, N, grad_sigmas, grad_rgbs)
 
         return grad_sigmas, grad_rgbs, None, None, None, None
 
