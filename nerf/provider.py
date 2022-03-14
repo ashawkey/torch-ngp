@@ -185,6 +185,9 @@ class NeRFDataset(Dataset):
             # only string can bypass the default collate, so we don't need to call item: https://github.com/pytorch/pytorch/blob/67a275c29338a6c6cc405bf143e63d53abe600bf/torch/utils/data/_utils/collate.py#L84
             results['H'] = str(self.H)
             results['W'] = str(self.W)
+            # blender has test gt, so we also load it
+            if self.mode == 'blender':
+                results['image'] = self.images[index]
         else:
             results['image'] = self.images[index]
             

@@ -90,6 +90,7 @@ class Trainer(object):
                  workspace='workspace', # workspace to save logs & ckpts
                  best_mode='min', # the smaller/larger result, the better
                  use_loss_as_metric=True, # use loss as the first metirc
+                 report_metric_at_train=False, # also report metrics at training
                  use_checkpoint="latest", # which ckpt to use at init time
                  use_tensorboardX=True, # whether to use tensorboard for logging
                  scheduler_update_every_step=False, # whether to call scheduler.step() after every train step
@@ -105,6 +106,7 @@ class Trainer(object):
         self.fp16 = fp16
         self.best_mode = best_mode
         self.use_loss_as_metric = use_loss_as_metric
+        self.report_metric_at_train = report_metric_at_train
         self.max_keep_ckpt = max_keep_ckpt
         self.eval_interval = eval_interval
         self.use_checkpoint = use_checkpoint
@@ -304,7 +306,7 @@ class Trainer(object):
         self.log(f"==> Start Training Epoch {self.epoch}, lr={self.optimizer.param_groups[0]['lr']:.6f} ...")
 
         total_loss = 0
-        if self.local_rank == 0:
+        if self.local_rank == 0 and self.report_metric_at_train:
             for metric in self.metrics:
                 metric.clear()
 
@@ -345,8 +347,9 @@ class Trainer(object):
             total_loss += loss_val
 
             if self.local_rank == 0:
-                for metric in self.metrics:
-                    metric.update(preds, truths)
+                if self.report_metric_at_train:
+                    for metric in self.metrics:
+                        metric.update(preds, truths)
                         
                 if self.use_tensorboardX:
                     self.writer.add_scalar("train/loss", loss_val, self.global_step)
@@ -363,11 +366,12 @@ class Trainer(object):
 
         if self.local_rank == 0:
             pbar.close()
-            for metric in self.metrics:
-                self.log(metric.report(), style="red")
-                if self.use_tensorboardX:
-                    metric.write(self.writer, self.epoch, prefix="train")
-                metric.clear()
+            if self.report_metric_at_train:
+                for metric in self.metrics:
+                    self.log(metric.report(), style="red")
+                    if self.use_tensorboardX:
+                        metric.write(self.writer, self.epoch, prefix="train")
+                    metric.clear()
 
         if not self.scheduler_update_every_step:
             if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):

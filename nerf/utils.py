@@ -52,7 +52,8 @@ def lift(x, y, z, intrinsics):
     # homogeneous
     return torch.stack((x_lift, y_lift, z, torch.ones_like(z)), dim=-1)
 
-
+# Never cast get_rays! fp16 rays degenerates results seriously!
+@torch.cuda.amp.autocast(enabled=False)
 def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     # c2w: [B, 4, 4]
     # intrinsics: [B, 3, 3]
@@ -124,6 +125,42 @@ def extract_geometry(bound_min, bound_max, resolution, threshold, query_func):
     return vertices, triangles
 
 
+class PSNRMeter:
+    def __init__(self):
+        self.V = 0
+        self.N = 0
+
+    def clear(self):
+        self.V = 0
+        self.N = 0
+
+    def prepare_inputs(self, *inputs):
+        outputs = []
+        for i, inp in enumerate(inputs):
+            if torch.is_tensor(inp):
+                inp = inp.detach().cpu().numpy()
+            outputs.append(inp)
+
+        return outputs
+
+    def update(self, preds, truths):
+        preds, truths = self.prepare_inputs(preds, truths) # [B, N, 3] or [B, H, W, 3], range[0, 1]
+          
+        # simplified since max_pixel_value is 1 here.
+        psnr = -10 * np.log10(np.mean(np.power(preds - truths, 2)))
+        
+        self.V += psnr
+        self.N += 1
+
+    def measure(self):
+        return self.V / self.N
+
+    def write(self, writer, global_step, prefix=""):
+        writer.add_scalar(os.path.join(prefix, "PSNR"), self.measure(), global_step)
+
+    def report(self):
+        return f'PSNR = {self.measure():.6f}'
+
 
 class Trainer(object):
     def __init__(self, 
@@ -144,7 +181,8 @@ class Trainer(object):
                  max_keep_ckpt=2, # max num of saved ckpts in disk
                  workspace='workspace', # workspace to save logs & ckpts
                  best_mode='min', # the smaller/larger result, the better
-                 use_loss_as_metric=True, # use loss as the first metirc
+                 use_loss_as_metric=True, # use loss as the first metric
+                 report_metric_at_train=False, # also report metrics at training
                  use_checkpoint="latest", # which ckpt to use at init time
                  use_tensorboardX=True, # whether to use tensorboard for logging
                  scheduler_update_every_step=False, # whether to call scheduler.step() after every train step
@@ -161,6 +199,7 @@ class Trainer(object):
         self.fp16 = fp16
         self.best_mode = best_mode
         self.use_loss_as_metric = use_loss_as_metric
+        self.report_metric_at_train = report_metric_at_train
         self.max_keep_ckpt = max_keep_ckpt
         self.eval_interval = eval_interval
         self.use_checkpoint = use_checkpoint
@@ -300,7 +339,7 @@ class Trainer(object):
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
             gt_rgb = images
-            
+        
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **self.conf)
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
@@ -530,7 +569,7 @@ class Trainer(object):
         self.log(f"==> Start Training Epoch {self.epoch}, lr={self.optimizer.param_groups[0]['lr']:.6f} ...")
 
         total_loss = 0
-        if self.local_rank == 0:
+        if self.local_rank == 0 and self.report_metric_at_train:
             for metric in self.metrics:
                 metric.clear()
 
@@ -574,8 +613,9 @@ class Trainer(object):
             total_loss += loss_val
 
             if self.local_rank == 0:
-                for metric in self.metrics:
-                    metric.update(preds, truths)
+                if self.report_metric_at_train:
+                    for metric in self.metrics:
+                        metric.update(preds, truths)
                         
                 if self.use_tensorboardX:
                     self.writer.add_scalar("train/loss", loss_val, self.global_step)
@@ -595,11 +635,12 @@ class Trainer(object):
 
         if self.local_rank == 0:
             pbar.close()
-            for metric in self.metrics:
-                self.log(metric.report(), style="red")
-                if self.use_tensorboardX:
-                    metric.write(self.writer, self.epoch, prefix="train")
-                metric.clear()
+            if self.report_metric_at_train:
+                for metric in self.metrics:
+                    self.log(metric.report(), style="red")
+                    if self.use_tensorboardX:
+                        metric.write(self.writer, self.epoch, prefix="train")
+                    metric.clear()
 
         if not self.scheduler_update_every_step:
             if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -633,7 +674,6 @@ class Trainer(object):
                 self.local_step += 1
                 
                 data = self.prepare_data(data)
-
 
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth, truths, loss = self.eval_step(data)
