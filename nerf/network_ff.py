@@ -35,15 +35,16 @@ class NeRFNetwork(NeRFRenderer):
                  geo_feat_dim=15,
                  num_layers_color=3,
                  hidden_dim_color=64,
+                 bound=1,
                  cuda_ray=False,
                  ):
-        super().__init__(cuda_ray)
+        super().__init__(bound, cuda_ray)
 
         # sigma network
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.geo_feat_dim = geo_feat_dim
-        self.encoder, self.in_dim = get_encoder(encoding)
+        self.encoder, self.in_dim = get_encoder(encoding, desired_resolution=2048 * bound)
 
         self.sigma_net = FFMLP(
             input_dim=self.in_dim, 
@@ -65,7 +66,7 @@ class NeRFNetwork(NeRFRenderer):
             num_layers=self.num_layers_color,
         )
     
-    def forward(self, x, d, bound):
+    def forward(self, x, d):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
 
@@ -74,7 +75,7 @@ class NeRFNetwork(NeRFRenderer):
         d = d.view(-1, 3)
 
         # sigma
-        x = self.encoder(x, size=bound)
+        x = self.encoder(x, bound=self.bound)
         h = self.sigma_net(x)
 
         #sigma = trunc_exp(h[..., 0])
@@ -99,13 +100,13 @@ class NeRFNetwork(NeRFRenderer):
 
         return sigma, color
 
-    def density(self, x, bound):
+    def density(self, x):
         # x: [B, N, 3], in [-bound, bound]
 
         prefix = x.shape[:-1]
         x = x.view(-1, 3)
 
-        x = self.encoder(x, size=bound)
+        x = self.encoder(x, bound=self.bound)
         h = self.sigma_net(x)
 
         #sigma = trunc_exp(h[..., 0])

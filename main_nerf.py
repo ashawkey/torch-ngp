@@ -36,6 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--W', type=int, default=800, help="GUI width")
     parser.add_argument('--H', type=int, default=800, help="GUI height")
     parser.add_argument('--radius', type=float, default=5, help="default GUI camera radius from center")
+    parser.add_argument('--fovy', type=float, default=90, help="default GUI camera fovy")
     parser.add_argument('--max_spp', type=int, default=64, help="GUI rendering max sample per pixel")
 
     opt = parser.parse_args()
@@ -51,13 +52,11 @@ if __name__ == '__main__':
     else:
         from nerf.network import NeRFNetwork
 
-
     model = NeRFNetwork(
-        encoding="hashgrid", encoding_dir="sphere_harmonics", 
-        num_layers=2, hidden_dim=64, geo_feat_dim=15, num_layers_color=3, hidden_dim_color=64, 
+        bound=opt.bound,
         cuda_ray=opt.cuda_ray,
     )
-    #model = NeRFNetwork(encoding="frequency", encoding_dir="frequency", num_layers=4, hidden_dim=256, geo_feat_dim=256, num_layers_color=4, hidden_dim_color=128)
+    
     print(model)
 
     ### test mode

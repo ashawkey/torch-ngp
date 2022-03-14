@@ -67,7 +67,7 @@ class NeRFGUI:
         self.opt = opt
         self.W = opt.W
         self.H = opt.H
-        self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius)
+        self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius, fovy=opt.fovy)
         self.trainer = trainer
         self.debug = debug
         self.bg_color = None # rendering bg color (TODO)

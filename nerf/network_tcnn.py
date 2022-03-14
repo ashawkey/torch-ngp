@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import numpy as np
+
 import tinycudann as tcnn
 from .renderer import NeRFRenderer
 
@@ -15,14 +17,17 @@ class NeRFNetwork(NeRFRenderer):
                  geo_feat_dim=15,
                  num_layers_color=3,
                  hidden_dim_color=64,
+                 bound=1,
                  cuda_ray=False,
                  ):
-        super().__init__(cuda_ray)
+        super().__init__(bound, cuda_ray)
 
         # sigma network
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
         self.geo_feat_dim = geo_feat_dim
+
+        per_level_scale = np.exp2(np.log2(2048 * bound / 16) / (16 - 1))
 
         self.encoder = tcnn.Encoding(
             n_input_dims=3,
@@ -32,7 +37,7 @@ class NeRFNetwork(NeRFRenderer):
                 "n_features_per_level": 2,
                 "log2_hashmap_size": 19,
                 "base_resolution": 16,
-                "per_level_scale": 1.3819,
+                "per_level_scale": per_level_scale,
             },
         )
 
@@ -75,7 +80,7 @@ class NeRFNetwork(NeRFRenderer):
         )
 
     
-    def forward(self, x, d, bound):
+    def forward(self, x, d):
         # x: [B, N, 3], in [-bound, bound]
         # d: [B, N, 3], nomalized in [-1, 1]
 
@@ -84,7 +89,7 @@ class NeRFNetwork(NeRFRenderer):
         d = d.view(-1, 3)
 
         # sigma
-        x = (x + bound) / (2 * bound) # to [0, 1]
+        x = (x + self.bound) / (2 * self.bound) # to [0, 1]
         x = self.encoder(x)
         h = self.sigma_net(x)
 
@@ -107,13 +112,13 @@ class NeRFNetwork(NeRFRenderer):
 
         return sigma, color
 
-    def density(self, x, bound):
+    def density(self, x):
         # x: [B, N, 3], in [-bound, bound]
 
         prefix = x.shape[:-1]
         x = x.view(-1, 3)
 
-        x = (x + bound) / (2 * bound) # to [0, 1]
+        x = (x + self.bound) / (2 * self.bound) # to [0, 1]
         x = self.encoder(x)
         h = self.sigma_net(x)
 

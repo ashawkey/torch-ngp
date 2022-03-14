@@ -99,6 +99,8 @@ check the `scripts` directory for more provided examples.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
 # Update Logs
+* 3.14: linearly scale `desired_resolution` with `bound` according to https://github.com/ashawkey/torch-ngp/issues/23.
+    * known issue: very large bound (e.g., 16) leads to bad performance. Better to scale down the camera to fit into a smaller bounding box.
 * 3.11: raymarching now supports supervising weights_sum (pixel alpha, or mask) directly, and bg_color is separated from CUDA to make it more flexible. Add an option to preload data into GPU.
 * 3.9: add fov for gui, 
     * known issue: if the camera is too far-away or fov is too small, the rendered image will be mosaicked. Turning off fp16 can remove the mosaic, so it is most likely related to rays precision.

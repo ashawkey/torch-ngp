@@ -123,11 +123,11 @@ class HashEncoder(nn.Module):
     def __repr__(self):
         return f"HashEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} base_resolution={self.base_resolution} per_level_scale={self.per_level_scale} params={tuple(self.embeddings.shape)}"
     
-    def forward(self, inputs, size=1):
-        # inputs: [..., input_dim], normalized real world positions in [-size, size]
+    def forward(self, inputs, bound=1):
+        # inputs: [..., input_dim], normalized real world positions in [-bound, bound]
         # return: [..., num_levels * level_dim]
 
-        inputs = (inputs + size) / (2 * size) # map to [0, 1]
+        inputs = (inputs + bound) / (2 * bound) # map to [0, 1]
         
         #print('inputs', inputs.shape, inputs.dtype, inputs.min().item(), inputs.max().item())
 

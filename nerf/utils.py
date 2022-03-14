@@ -331,7 +331,7 @@ class Trainer(object):
         return pred_rgb, pred_depth
 
 
-    def save_mesh(self, save_path=None, resolution=256, bound=1, threshold=10):
+    def save_mesh(self, save_path=None, resolution=256, threshold=10):
 
         if save_path is None:
             save_path = os.path.join(self.workspace, 'meshes', f'{self.name}_{self.epoch}.ply')
@@ -343,11 +343,11 @@ class Trainer(object):
         def query_func(pts):
             with torch.no_grad():
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    sdfs = self.model.density(pts.to(self.device), bound)
+                    sdfs = self.model.density(pts.to(self.device))
             return sdfs
 
-        bounds_min = torch.FloatTensor([-bound] * 3)
-        bounds_max = torch.FloatTensor([bound] * 3)
+        bounds_min = torch.FloatTensor([-self.model.bound] * 3)
+        bounds_max = torch.FloatTensor([self.model.bound] * 3)
 
         vertices, triangles = extract_geometry(bounds_min, bounds_max, resolution=resolution, threshold=threshold, query_func=query_func)
 
@@ -421,7 +421,7 @@ class Trainer(object):
         # update grid
         if self.model.cuda_ray:
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state(self.conf['bound'])
+                self.model.update_extra_state()
 
         total_loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         
@@ -539,7 +539,7 @@ class Trainer(object):
         # update grid
         if self.model.cuda_ray:
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state(self.conf['bound'])
+                self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
