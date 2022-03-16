@@ -11,7 +11,8 @@ _backend = load(name='_ffmlp',
                     '-U__CUDA_NO_HALF_OPERATORS__', '-U__CUDA_NO_HALF_CONVERSIONS__', '-U__CUDA_NO_HALF2_OPERATORS__',
                 ],
                 extra_include_paths=[
-                    os.path.join(_src_path, 'include'),
+                    os.path.join(_src_path, 'include/cutlass/include'),
+                    os.path.join(_src_path, 'include/cutlass/tools/util/include'),
                 ],
                 sources=[os.path.join(_src_path, 'src', f) for f in [
                     'ffmlp.cu',
