@@ -1,0 +1,3 @@
+[submodule "ffmlp/dependencies/cutlass"]
+	path = ffmlp/dependencies/cutlass
+	url = https://github.com/NVIDIA/cutlass.git
