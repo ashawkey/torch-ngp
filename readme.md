@@ -44,6 +44,11 @@ Later development will be focused on reproducing the NeRF inference speed.
 
 # Install
 ```bash
+
+git clone --recursive https://github.com/ashawkey/torch-ngp.git
+
+cd torch-ngp
+
 pip install -r requirements.txt
 
 # (optional) install the tcnn backbone
