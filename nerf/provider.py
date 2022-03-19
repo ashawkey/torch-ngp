@@ -26,7 +26,7 @@ def nerf_matrix_to_ngp(pose, scale=0.33):
 
 
 class NeRFDataset(Dataset):
-    def __init__(self, path, type='train', mode='colmap', preload=True, downscale=1, scale=0.33, n_test=10):
+    def __init__(self, path, type='train', mode='colmap', preload=False, downscale=1, scale=0.33, n_test=10):
         super().__init__()
         # path: the json file path.
 

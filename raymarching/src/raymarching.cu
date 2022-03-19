@@ -23,7 +23,7 @@ inline constexpr __device__ float SQRT3() { return 1.73205080757f; }
 inline constexpr __device__ int MAX_STEPS() { return 1024; }
 inline constexpr __device__ float MIN_STEPSIZE() { return 2 * SQRT3() / MAX_STEPS(); } // still need to mul bound to get dt_min
 inline constexpr __device__ float MIN_NEAR() { return 0.05f; }
-inline constexpr __device__ float DT_GAMMA() { return 1.f / 256.f; }
+inline constexpr __device__ float DT_GAMMA() { return 0.f; }
 
 // util functions
 template <typename T>
@@ -236,7 +236,7 @@ __global__ void kernel_composite_rays_train_forward(
     const int * __restrict__ rays,
     const float bound,
     const uint32_t M, const uint32_t N,
-    scalar_t * weights_sum, // temp: used as weights_sum
+    scalar_t * weights_sum,
     scalar_t * image
 ) {
     // parallel per ray
