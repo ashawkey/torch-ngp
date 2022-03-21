@@ -50,7 +50,7 @@ def lift(x, y, z, intrinsics):
     y_lift = (y - cy) / fy * z
 
     # homogeneous
-    return torch.stack((x_lift, y_lift, z, torch.ones_like(z)), dim=-1)
+    return torch.stack((x_lift, y_lift, z), dim=-1)
 
 # Never cast get_rays! fp16 rays degenerates results seriously!
 @torch.cuda.amp.autocast(enabled=False)
@@ -65,27 +65,32 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     prefix = c2w.shape[:-2]
 
     i, j = torch.meshgrid(torch.linspace(0, W-1, W, device=device), torch.linspace(0, H-1, H, device=device), indexing='ij') # for torch < 1.10, should remove indexing='ij'
-    i = i.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
-    j = j.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W])
+    i = i.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W]) + 0.5
+    j = j.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W]) + 0.5
 
     if N_rays > 0:
         N_rays = min(N_rays, H*W)
-        select_hs = torch.randint(0, H, size=[N_rays], device=device)
-        select_ws = torch.randint(0, W, size=[N_rays], device=device)
-        select_inds = select_hs * W + select_ws
+        #select_hs = torch.randint(0, H, size=[N_rays], device=device)
+        #select_ws = torch.randint(0, W, size=[N_rays], device=device)
+        #select_inds = select_hs * W + select_ws
+        select_inds = torch.randint(0, H*W, size=[N_rays], device=device)
         select_inds = select_inds.expand([*prefix, N_rays])
         i = torch.gather(i, -1, select_inds)
         j = torch.gather(j, -1, select_inds)
     else:
         select_inds = torch.arange(H*W, device=device).expand([*prefix, H*W])
 
-    pixel_points_cam = lift(i, j, torch.ones_like(i), intrinsics=intrinsics)
-    pixel_points_cam = pixel_points_cam.transpose(-1, -2)
+    directions = lift(i, j, torch.ones_like(i), intrinsics=intrinsics)
+    directions = directions / torch.norm(directions, dim=-1, keepdim=True)
 
-    world_coords = torch.bmm(c2w, pixel_points_cam).transpose(-1, -2)[..., :3]
+    rays_d = directions @ c2w[:, :3, :3].transpose(-1, -2) # (B, N_rays, 3)
+
+    # pixel_points_cam = pixel_points_cam.transpose(-1, -2)
+
+    # world_coords = torch.bmm(c2w, pixel_points_cam).transpose(-1, -2)[..., :3]
     
-    rays_d = world_coords - rays_o[..., None, :]
-    rays_d = F.normalize(rays_d, dim=-1)
+    # rays_d = world_coords - rays_o[..., None, :]
+    # rays_d = F.normalize(rays_d, dim=-1)
 
     rays_o = rays_o[..., None, :].expand_as(rays_d)
 
@@ -182,7 +187,7 @@ class Trainer(object):
                  workspace='workspace', # workspace to save logs & ckpts
                  best_mode='min', # the smaller/larger result, the better
                  use_loss_as_metric=True, # use loss as the first metric
-                 report_metric_at_train=False, # also report metrics at training
+                 report_metric_at_train=True, # also report metrics at training
                  use_checkpoint="latest", # which ckpt to use at init time
                  use_tensorboardX=True, # whether to use tensorboard for logging
                  scheduler_update_every_step=False, # whether to call scheduler.step() after every train step
@@ -433,6 +438,12 @@ class Trainer(object):
         pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
         self.model.eval()
         with torch.no_grad():
+
+            # update grid
+            if self.model.cuda_ray:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
+
             for i, data in enumerate(loader):
                 
                 data = self.prepare_data(data)
@@ -575,10 +586,6 @@ class Trainer(object):
 
         self.model.train()
 
-        # update grid
-        if self.model.cuda_ray:
-            with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
@@ -591,6 +598,11 @@ class Trainer(object):
         self.local_step = 0
 
         for data in loader:
+
+            # update grid
+            if self.global_step % 16 == 0 and self.model.cuda_ray:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
             
             self.local_step += 1
             self.global_step += 1
@@ -670,6 +682,12 @@ class Trainer(object):
 
         with torch.no_grad():
             self.local_step = 0
+
+            # update grid
+            if self.model.cuda_ray:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
+
             for data in loader:    
                 self.local_step += 1
                 

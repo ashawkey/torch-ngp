@@ -98,7 +98,7 @@ class NeRFRenderer(nn.Module):
             self.mean_density = 0
             self.iter_density = 0
             # step counter
-            step_counter = torch.zeros(64, 2, dtype=torch.int32) # 64 is hardcoded for averaging...
+            step_counter = torch.zeros(16, 2, dtype=torch.int32) # 16 is hardcoded for averaging...
             self.register_buffer('step_counter', step_counter)
             self.mean_count = 0
             self.local_step = 0
@@ -234,7 +234,7 @@ class NeRFRenderer(nn.Module):
 
         if self.training:
             # setup counter
-            counter = self.step_counter[self.local_step % 64]
+            counter = self.step_counter[self.local_step % 16]
             counter.zero_() # set to 0
             self.local_step += 1
 
@@ -352,7 +352,7 @@ class NeRFRenderer(nn.Module):
         self.iter_density += 1
 
         ### update step counter
-        total_step = min(64, self.local_step)
+        total_step = min(16, self.local_step)
         if total_step > 0:
             self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
         self.local_step = 0

@@ -60,7 +60,7 @@ if __name__ == '__main__':
     
     print(model)
 
-    criterion = torch.nn.HuberLoss(delta=0.1)
+    criterion = torch.nn.MSELoss()
 
     ### test mode
     if opt.test:
@@ -73,7 +73,7 @@ if __name__ == '__main__':
         
         else:
             test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale, preload=opt.preload)
-            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, pin_memory=True)
 
             if opt.mode == 'blender':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
@@ -96,7 +96,7 @@ if __name__ == '__main__':
 
         if opt.gui:
             train_dataset = NeRFDataset(opt.path, type='all', mode=opt.mode, scale=opt.scale, preload=opt.preload)
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
+            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True)
             trainer.train_loader = train_loader # attach dataloader to trainer
 
             gui = NeRFGUI(opt, trainer)
@@ -104,15 +104,15 @@ if __name__ == '__main__':
         
         else:
             train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale, preload=opt.preload)
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
+            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True, pin_memory=True)
             valid_dataset = NeRFDataset(opt.path, type='val', mode=opt.mode, downscale=2, scale=opt.scale, preload=opt.preload)
-            valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1)
+            valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1, pin_memory=True)
 
             trainer.train(train_loader, valid_loader, 200)
 
             # also test
             test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale, preload=opt.preload)
-            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, pin_memory=True)
             
             if opt.mode == 'blender':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.

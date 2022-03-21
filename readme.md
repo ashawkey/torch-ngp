@@ -87,12 +87,12 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
 # test mode for GUI
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui --test
 
-# for the blender dataset, you should add `--mode blender --bound 1 --scale 0.8`
+# for the blender dataset, you should add `--mode blender --bound 1.5 --scale 1.0`
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box.
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1 --scale 0.8 --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 --gui
 ```
 
 check the `scripts` directory for more provided examples.
