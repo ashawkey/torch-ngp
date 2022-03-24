@@ -18,12 +18,12 @@
 #define CHECK_IS_FLOATING(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Float || x.scalar_type() == at::ScalarType::Half || x.scalar_type() == at::ScalarType::Double, #x " must be a floating tensor")
 
 // some const
-inline constexpr __device__ float DENSITY_THRESH() { return 10.0f; } // TODO: how to decide this threshold ?
+inline constexpr __device__ float DENSITY_THRESH() { return 0.01f; } // TODO: how to decide this threshold ?
 inline constexpr __device__ float SQRT3() { return 1.73205080757f; }
 inline constexpr __device__ int MAX_STEPS() { return 1024; }
 inline constexpr __device__ float MIN_STEPSIZE() { return 2 * SQRT3() / MAX_STEPS(); } // still need to mul bound to get dt_min
 inline constexpr __device__ float MIN_NEAR() { return 0.05f; }
-inline constexpr __device__ float DT_GAMMA() { return 0.f; }
+inline constexpr __device__ float DT_GAMMA() { return 1.0f / 256.0f; }
 
 // util functions
 template <typename T>
@@ -356,7 +356,7 @@ __global__ void kernel_composite_rays_train_backward(
 
     while (step < num_steps) {
         
-        //if (T < 1e-4f) break;
+        if (T < 1e-4f) break;
 
         const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
         const scalar_t weight = alpha * T;

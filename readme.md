@@ -8,7 +8,7 @@ A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp)
 
 For the LEGO dataset, we can reach **~20FPS** at 800x800 due to efficient voxel pruning.
 
-(Tested on the fox dataset with a TITAN RTX. The speed is still 2-5x slower compared to the original implementation.)
+(Tested with a TITAN RTX. The speed is still 2-5x slower compared to the original implementation.)
 
 **A GUI for training/visualizing NeRF is also available!**
 
@@ -104,6 +104,7 @@ check the `scripts` directory for more provided examples.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
 # Update Logs
+* 3.22: reverted from pre-generating rays as it takes too much CPU memory, still the PSNR for Lego can reach ~33 now.
 * 3.14: fixed the precision related issue for `fp16` mode, and it renders much better quality. Added PSNR metric for NeRF.
     * known issue: PSNR is worse, for Lego test dataset is only ~30.
 * 3.14: linearly scale `desired_resolution` with `bound` according to https://github.com/ashawkey/torch-ngp/issues/23.

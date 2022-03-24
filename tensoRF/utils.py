@@ -216,11 +216,13 @@ class Trainer(object):
         if optimizer is None:
             self.optimizer = optim.Adam(self.model.parameters(), lr=0.001, weight_decay=5e-4) # naive adam
         else:
+            self.optimizer_fn = optimizer
             self.optimizer = optimizer(self.model)
 
         if lr_scheduler is None:
             self.lr_scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda epoch: 1) # fake scheduler
         else:
+            self.lr_scheduler_fn = lr_scheduler
             self.lr_scheduler = lr_scheduler(self.optimizer)
 
         if ema_decay is not None:
@@ -303,9 +305,9 @@ class Trainer(object):
         images = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds], -1)) # [B, N, 3/4]
 
         # train with random background color if using alpha mixing
-        #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
+        bg_color = torch.ones(3, device=self.device) # [3], fixed white background
         #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
-        bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
+        #bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
 
         if C == 4:
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
@@ -317,6 +319,9 @@ class Trainer(object):
         pred_rgb = outputs['rgb']
 
         loss = self.criterion(pred_rgb, gt_rgb)
+
+        # l1 reg
+        loss += self.model.density_loss() * self.conf['l1_reg_weight']
 
         return pred_rgb, gt_rgb, loss
 
@@ -634,6 +639,16 @@ class Trainer(object):
                     pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                 pbar.update(loader.batch_size)
 
+            if self.global_step in self.conf['upsample_model_steps']:
+
+                reso = self.upsample_resolutions.pop(0)
+                self.log(f"[INFO] upsample model at step {self.global_step} from {self.model.resolution[0]} to {reso}")
+                self.model.upsample_model([reso] * 3)
+
+                # reset optimizer since params changed.
+                self.optimizer = self.optimizer_fn(self.model)
+                self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)                
+
         if self.ema is not None:
             self.ema.update()
 
@@ -760,6 +775,7 @@ class Trainer(object):
         state = {
             'epoch': self.epoch,
             'stats': self.stats,
+            'resolution': self.model.resolution, # important!
         }
 
         if self.model.cuda_ray:
@@ -820,10 +836,19 @@ class Trainer(object):
 
         checkpoint_dict = torch.load(checkpoint, map_location=self.device)
         
-        if 'model' not in checkpoint_dict:
-            self.model.load_state_dict(checkpoint_dict)
-            self.log("[INFO] loaded model.")
-            return
+        # if 'model' not in checkpoint_dict:
+        #     # reset resolution
+        #     self.model.upsample_model() # TODO: need to calclate resolution from param size...
+        #     self.optimizer = self.optimizer_fn(self.model)
+        #     self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)
+
+        #     self.model.load_state_dict(checkpoint_dict)
+        #     self.log("[INFO] loaded model.")
+        #     return
+
+        self.model.upsample_model(checkpoint_dict['resolution'])
+        self.optimizer = self.optimizer_fn(self.model)
+        self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)
 
         missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
         self.log("[INFO] loaded model.")

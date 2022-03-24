@@ -23,6 +23,7 @@ if __name__ == '__main__':
         assert opt.fp16, "fully-fused mode must be used with fp16 mode"
         from sdf.netowrk_ff import SDFNetwork
     elif opt.tcnn:
+        assert opt.fp16, "tcnn mode must be used with fp16 mode"
         from sdf.network_tcnn import SDFNetwork        
     else:
         from sdf.netowrk import SDFNetwork

@@ -3,7 +3,7 @@ import argparse
 
 from nerf.provider import NeRFDataset
 from nerf.gui import NeRFGUI
-from nerf.utils import *
+from tensoRF.utils import *
 
 #torch.autograd.set_detect_anomaly(True)
 
@@ -18,14 +18,16 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1) 
     parser.add_argument('--num_rays', type=int, default=4096)
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
+    parser.add_argument('--l1_reg_weight', type=float, default=4e-5)
     # (only valid when not using --cuda_ray)
     parser.add_argument('--num_steps', type=int, default=128)
     parser.add_argument('--upsample_steps', type=int, default=128)
     parser.add_argument('--max_ray_batch', type=int, default=4096)
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
-    parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
-    parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
+    parser.add_argument('--resolution0', type=int, default=128)
+    parser.add_argument('--resolution1', type=int, default=300)
+    parser.add_argument("--upsample_model_steps", type=int, action="append", default=[2000, 3000, 4000, 5500, 7000])
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, fasten training but use more GPU memory")
@@ -45,16 +47,10 @@ if __name__ == '__main__':
     
     seed_everything(opt.seed)
 
-    if opt.ff:
-        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
-        from nerf.network_ff import NeRFNetwork
-    elif opt.tcnn:
-        assert opt.fp16, "tcnn mode must be used with fp16 mode"
-        from nerf.network_tcnn import NeRFNetwork
-    else:
-        from nerf.network import NeRFNetwork
+    from tensoRF.network import NeRFNetwork
 
     model = NeRFNetwork(
+        resolution=[opt.resolution0] * 3,
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
     )
@@ -83,17 +79,17 @@ if __name__ == '__main__':
     
     else:
 
-        optimizer = lambda model: torch.optim.Adam([
-            {'name': 'encoding', 'params': list(model.encoder.parameters()), 'lr': 2e-2},
-            {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6, 'lr': 1e-3},
-        ], betas=(0.9, 0.99), eps=1e-15)
+        optimizer = lambda model: torch.optim.Adam(model.get_params(2e-2, 1e-3), betas=(0.9, 0.99), eps=1e-15)
 
         # need different milestones for GUI/CMD mode.
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [100, 200], gamma=0.33)
+        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 2000] if opt.gui else [100, 200], gamma=0.33)
 
-        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
+        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
 
-        # need different dataset type for GUI/CMD mode.
+        # calc upsample target resolutions
+        upsample_resolutions = (np.round(np.exp(np.linspace(np.log(opt.resolution0), np.log(opt.resolution1), len(opt.upsample_model_steps) + 1)))).astype(np.int32).tolist()[1:]
+        print('upsample_resolutions:', upsample_resolutions)
+        trainer.upsample_resolutions = upsample_resolutions
 
         if opt.gui:
             train_dataset = NeRFDataset(opt.path, type='all', mode=opt.mode, scale=opt.scale, preload=opt.preload)
