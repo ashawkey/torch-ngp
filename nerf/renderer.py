@@ -159,7 +159,7 @@ class NeRFRenderer(nn.Module):
         # query SDF and RGB
         dirs = rays_d.unsqueeze(-2).expand_as(pts)
 
-        sigmas, rgbs = self(pts.reshape(B, -1, 3), dirs.reshape(B, -1, 3))
+        sigmas, rgbs = self(pts.reshape(-1, 3), dirs.reshape(-1, 3))
 
         rgbs = rgbs.reshape(B, N, num_steps, 3) # [B, N, T, 3]
         sigmas = sigmas.reshape(B, N, num_steps) # [B, N, T]
@@ -185,7 +185,7 @@ class NeRFRenderer(nn.Module):
 
             # only forward new points to save computation
             new_dirs = rays_d.unsqueeze(-2).expand_as(new_pts)
-            new_sigmas, new_rgbs = self(new_pts.reshape(B, -1, 3), new_dirs.reshape(B, -1, 3))
+            new_sigmas, new_rgbs = self(new_pts.reshape(-1, 3), new_dirs.reshape(-1, 3))
             new_rgbs = new_rgbs.reshape(B, N, upsample_steps, 3) # [B, N, t, 3]
             new_sigmas = new_sigmas.reshape(B, N, upsample_steps) # [B, N, t]
 
@@ -247,8 +247,16 @@ class NeRFRenderer(nn.Module):
             self.local_step += 1
 
             xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, perturb, 128, False)
-            sigmas, rgbs = self(xyzs, dirs)
-            weights_sum, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays, self.bound)
+
+            deltas = self.density_scale * deltas
+            
+            density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
+            sigmas = density_outputs['sigma']
+            weights = raymarching.composite_weights_train(sigmas, deltas, rays) # [M,]
+            mask = weights > 1e-4 # hard coded
+            rgbs = self.color(xyzs, dirs, mask=mask, **density_outputs)
+
+            weights_sum, image = raymarching.composite_rays_train(weights, rgbs, rays, self.bound)
 
             depth = None # currently training do not requires depth
 
@@ -297,8 +305,14 @@ class NeRFRenderer(nn.Module):
                 n_step = max(min(N // n_alive, 8), 1)
 
                 xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_grid, self.mean_density, near, far, 128, perturb)
-                sigmas, rgbs = self(xyzs, dirs)
+
                 deltas = self.density_scale * deltas
+
+                #sigmas, rgbs = self(xyzs, dirs)
+                density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
+                sigmas = density_outputs['sigma']
+                rgbs = self.color(xyzs, dirs, **density_outputs)
+
                 raymarching.composite_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], sigmas, rgbs, deltas, weights_sum, depth, image)
 
                 #print(f'step = {step}, n_step = {n_step}, n_alive = {n_alive}')
@@ -348,7 +362,7 @@ class NeRFRenderer(nn.Module):
                         if pad_n != 0:
                             pts = torch.cat([pts, torch.zeros(pad_n, 3)], dim=0)
                         # query density
-                        sigmas = self.density(pts.to(tmp_grid.device))[:n].reshape(lx, ly, lz).detach()
+                        sigmas = self.density(pts.to(tmp_grid.device))[:n].reshape(lx, ly, lz)['sigma'].detach()
                         # change density to alpha in [0, 1]
                         alphas = 1 - torch.exp(-self.density_scale * sigmas) # [B, N, T], fake deltas to 1 (it doesn't really matter)
                         tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = alphas

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import numpy as np
+
 from encoding import get_encoder
 from nerf.renderer import NeRFRenderer
 
@@ -117,12 +119,8 @@ class NeRFNetwork(NeRFRenderer):
     
     
     def forward(self, x, d):
-        # x: [..., 3], in [-bound, bound]
-        # d: [..., 3], nomalized in [-1, 1]
-
-        prefix = x.shape[:-1]
-        x = x.view(-1, 3)
-        d = d.view(-1, 3)
+        # x: [N, 3], in [-bound, bound]
+        # d: [N, 3], nomalized in [-1, 1]
 
         # normalize to [-1, 1]
         x = x / self.bound
@@ -131,7 +129,7 @@ class NeRFNetwork(NeRFRenderer):
         sigma_feat = self.get_sigma_feat(x)
         sigma = F.relu(sigma_feat, inplace=True)
 
-        # color
+        # rgb
         color_feat = self.get_color_feat(x)
         enc_color_feat = self.encoder(color_feat)
         enc_d = self.encoder_dir(d)
@@ -143,19 +141,13 @@ class NeRFNetwork(NeRFRenderer):
                 h = F.relu(h, inplace=True)
         
         # sigmoid activation for rgb
-        color = torch.sigmoid(h)
+        rgb = torch.sigmoid(h)
 
-        sigma = sigma.view(*prefix)
-        color = color.view(*prefix, -1)
-
-        return sigma, color
+        return sigma, rgb
 
 
     def density(self, x):
-        # x: [..., 3], in [-bound, bound]
-
-        prefix = x.shape[:-1]
-        x = x.view(-1, 3)
+        # x: [N, 3], in [-bound, bound]
 
         # normalize to [-1, 1]
         x = x / self.bound
@@ -163,9 +155,40 @@ class NeRFNetwork(NeRFRenderer):
         sigma_feat = self.get_sigma_feat(x)
         sigma = F.relu(sigma_feat, inplace=True)
 
-        sigma = sigma.view(*prefix)
+        return {
+            'sigma': sigma,
+        }
 
-        return sigma
+    # allow masked inference
+    def color(self, x, d, mask=None, **kwargs):
+        # x: [N, 3] in [-bound, bound]
+        # mask: [N,], bool, indicates where we actually needs to compute rgb.
+
+        if mask is not None:
+            x = x[mask]
+            d = d[mask]
+
+        color_feat = self.get_color_feat(x)
+        enc_color_feat = self.encoder(color_feat)
+        enc_d = self.encoder_dir(d)
+
+        h = torch.cat([enc_color_feat, enc_d], dim=-1)
+        for l in range(self.num_layers):
+            h = self.color_net[l](h)
+            if l != self.num_layers - 1:
+                h = F.relu(h, inplace=True)
+        
+        # sigmoid activation for rgb
+        h = torch.sigmoid(h)
+
+        if mask is not None:
+            rgbs = torch.zeros(mask.shape[0], 3, dtype=h.dtype, device=h.device) # [N, 3]
+            rgbs[mask] = h
+        else:
+            rgbs = h
+
+        return rgbs
+
 
     # L1 penalty for loss
     def density_loss(self):

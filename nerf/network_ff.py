@@ -49,12 +49,8 @@ class NeRFNetwork(NeRFRenderer):
         )
     
     def forward(self, x, d):
-        # x: [B, N, 3], in [-bound, bound]
-        # d: [B, N, 3], nomalized in [-1, 1]
-
-        prefix = x.shape[:-1]
-        x = x.view(-1, 3)
-        d = d.view(-1, 3)
+        # x: [N, 3], in [-bound, bound]
+        # d: [N, 3], nomalized in [-1, 1]
 
         # sigma
         x = self.encoder(x, bound=self.bound)
@@ -74,23 +70,47 @@ class NeRFNetwork(NeRFRenderer):
         h = self.color_net(h)
         
         # sigmoid activation for rgb
-        color = torch.sigmoid(h)
-    
-        sigma = sigma.view(*prefix)
-        color = color.view(*prefix, -1)
+        rgb = torch.sigmoid(h)
 
-        return sigma, color
+        return sigma, rgb
 
     def density(self, x):
-        # x: [B, N, 3], in [-bound, bound]
-
-        prefix = x.shape[:-1]
-        x = x.view(-1, 3)
+        # x: [N, 3], in [-bound, bound]
 
         x = self.encoder(x, bound=self.bound)
         h = self.sigma_net(x)
 
         sigma = F.relu(h[..., 0])
-        sigma = sigma.view(*prefix)
+        geo_feat = h[..., 1:]
 
-        return sigma
+        return {
+            'sigma': sigma,
+            'geo_feat': geo_feat,
+        }
+
+    # allow masked inference
+    def color(self, x, d, mask=None, geo_feat=None, **kwargs):
+        # x: [N, 3] in [-bound, bound]
+        # mask: [N,], bool, indicates where we actually needs to compute rgb.
+
+        if mask is not None:
+            x = x[mask]
+            d = d[mask]
+            geo_feat = geo_feat[mask]
+
+        d = self.encoder_dir(d)
+
+        p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
+        h = torch.cat([d, geo_feat, p], dim=-1)
+        h = self.color_net(h)
+        
+        # sigmoid activation for rgb
+        h = torch.sigmoid(h)
+
+        if mask is not None:
+            rgbs = torch.zeros(np.prod(prefix), 3, dtype=h.dtype, device=h.device) # [N, 3]
+            rgbs[mask] = h
+        else:
+            rgbs = h
+
+        return rgbs
