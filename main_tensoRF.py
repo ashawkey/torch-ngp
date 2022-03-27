@@ -20,8 +20,8 @@ if __name__ == '__main__':
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
     parser.add_argument('--l1_reg_weight', type=float, default=4e-5)
     # (only valid when not using --cuda_ray)
-    parser.add_argument('--num_steps', type=int, default=128)
-    parser.add_argument('--upsample_steps', type=int, default=128)
+    parser.add_argument('--num_steps', type=int, default=512)
+    parser.add_argument('--upsample_steps', type=int, default=0)
     parser.add_argument('--max_ray_batch', type=int, default=4096)
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")

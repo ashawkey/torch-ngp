@@ -32,7 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('--N_voxel_init', type=int, default=128**3)
     parser.add_argument('--N_voxel_final', type=int, default=300**3)
     parser.add_argument("--upsamp_list", type=int, action="append", default=[2000,3000,4000,5500,7000])
-    parser.add_argument("--update_AlphaMask_list", type=int, action="append", default=[2000,4000])
+    parser.add_argument("--update_AlphaMask_list", type=int, action="append", default=[]) # [2000,4000]
     parser.add_argument('--lindisp', default=False, action="store_true", help='use disparity depth sampling')
     parser.add_argument("--perturb", type=float, default=1., help='set to 0. for no jitter, 1. for jitter')
     parser.add_argument("--accumulate_decay", type=float, default=0.998)
@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
     aabb = (torch.tensor([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]) * opt.bound).to(device)
     reso_cur = N_to_reso(opt.N_voxel_init, aabb)
-    nSamples = min(opt.nSamples, cal_n_samples(reso_cur, opt.step_ratio))
+    nSamples = 512 # min(opt.nSamples, cal_n_samples(reso_cur, opt.step_ratio))
     near_far = [2.0, 6.0] # fixed for blender
     N_voxel_list = (torch.round(torch.exp(torch.linspace(np.log(opt.N_voxel_init), np.log(opt.N_voxel_final), len(opt.upsamp_list)+1))).long()).tolist()[1:]
 
@@ -109,7 +109,7 @@ if __name__ == '__main__':
 
         scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 200], gamma=0.33)
 
-        trainer = Trainer('tensorf', vars(opt), model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
+        trainer = Trainer('tensorf', vars(opt), model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='scratch', eval_interval=50)
 
         # attach extra things
         trainer.aabb = aabb

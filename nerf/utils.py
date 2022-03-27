@@ -459,10 +459,6 @@ class Trainer(object):
 
         self.model.train()
 
-        # update grid
-        if self.model.cuda_ray:
-            with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state()
 
         total_loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         
@@ -476,6 +472,11 @@ class Trainer(object):
             except StopIteration:
                 loader = iter(train_loader)
                 data = next(loader)
+
+            # update grid
+            if self.model.cuda_ray and self.global_step % 100 == 0:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
             
             self.global_step += 1
             
@@ -578,9 +579,9 @@ class Trainer(object):
         self.model.train()
 
         # update grid
-        # if self.model.cuda_ray:
-        #     with torch.cuda.amp.autocast(enabled=self.fp16):
-        #         self.model.update_extra_state()
+        if self.model.cuda_ray:
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
@@ -593,11 +594,6 @@ class Trainer(object):
         self.local_step = 0
 
         for data in loader:
-
-            # # update grid
-            # if self.global_step % 16 == 0 and self.model.cuda_ray:
-            #     with torch.cuda.amp.autocast(enabled=self.fp16):
-            #         self.model.update_extra_state()
             
             self.local_step += 1
             self.global_step += 1

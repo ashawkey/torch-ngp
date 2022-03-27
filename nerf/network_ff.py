@@ -93,24 +93,42 @@ class NeRFNetwork(NeRFRenderer):
         # x: [N, 3] in [-bound, bound]
         # mask: [N,], bool, indicates where we actually needs to compute rgb.
 
+        #starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        #starter.record()
+
         if mask is not None:
+            rgbs = torch.zeros(mask.shape[0], 3, dtype=x.dtype, device=x.device) # [N, 3]
+            # in case of empty mask
+            if not mask.any():
+                return rgbs
             x = x[mask]
             d = d[mask]
             geo_feat = geo_feat[mask]
+
+            #print(x.shape, rgbs.shape)
+
+        #ender.record(); torch.cuda.synchronize(); curr_time = starter.elapsed_time(ender); print(f'mask = {curr_time}')
+        #starter.record()
 
         d = self.encoder_dir(d)
 
         p = torch.zeros_like(geo_feat[..., :1]) # manual input padding
         h = torch.cat([d, geo_feat, p], dim=-1)
+
         h = self.color_net(h)
         
         # sigmoid activation for rgb
         h = torch.sigmoid(h)
 
+        #ender.record(); torch.cuda.synchronize(); curr_time = starter.elapsed_time(ender); print(f'call = {curr_time}')
+        #starter.record()
+
         if mask is not None:
-            rgbs = torch.zeros(np.prod(prefix), 3, dtype=h.dtype, device=h.device) # [N, 3]
-            rgbs[mask] = h
+            rgbs[mask] = h.to(rgbs.dtype)
         else:
             rgbs = h
+
+        #ender.record(); torch.cuda.synchronize(); curr_time = starter.elapsed_time(ender); print(f'unmask = {curr_time}')
+        #starter.record()
 
         return rgbs

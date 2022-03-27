@@ -48,7 +48,7 @@ class _march_rays_train(Function):
 
         _backend.march_rays_train(rays_o, rays_d, density_grid, mean_density, iter_density, bound, N, H, M, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
 
-        ##print(step_counter, M)
+        #print(step_counter, M)
 
         # only used at the first (few) epochs.
         if force_all_rays or mean_count <= 0:

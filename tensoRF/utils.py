@@ -214,12 +214,14 @@ class Trainer(object):
         self.criterion = criterion
 
         if optimizer is None:
+            self.optimizer_fn = None
             self.optimizer = optim.Adam(self.model.parameters(), lr=0.001, weight_decay=5e-4) # naive adam
         else:
             self.optimizer_fn = optimizer
             self.optimizer = optimizer(self.model)
 
         if lr_scheduler is None:
+            self.lr_scheduler_fn = None
             self.lr_scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda epoch: 1) # fake scheduler
         else:
             self.lr_scheduler_fn = lr_scheduler
@@ -305,9 +307,9 @@ class Trainer(object):
         images = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds], -1)) # [B, N, 3/4]
 
         # train with random background color if using alpha mixing
-        bg_color = torch.ones(3, device=self.device) # [3], fixed white background
+        #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
         #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
-        #bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
+        bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
 
         if C == 4:
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
@@ -583,9 +585,9 @@ class Trainer(object):
         self.model.train()
 
         # update grid
-        # if self.model.cuda_ray:
-        #     with torch.cuda.amp.autocast(enabled=self.fp16):
-        #         self.model.update_extra_state()
+        if self.model.cuda_ray:
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
@@ -598,11 +600,6 @@ class Trainer(object):
         self.local_step = 0
 
         for data in loader:
-
-            # # update grid
-            # if self.global_step % 16 == 0 and self.model.cuda_ray:
-            #     with torch.cuda.amp.autocast(enabled=self.fp16):
-            #         self.model.update_extra_state()
             
             self.local_step += 1
             self.global_step += 1
@@ -847,8 +844,10 @@ class Trainer(object):
         #     return
 
         self.model.upsample_model(checkpoint_dict['resolution'])
-        self.optimizer = self.optimizer_fn(self.model)
-        self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)
+        if self.optimizer_fn is not None:
+            self.optimizer = self.optimizer_fn(self.model)
+        if self.lr_scheduler_fn is not None:
+            self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)
 
         missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
         self.log("[INFO] loaded model.")

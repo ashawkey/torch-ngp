@@ -164,15 +164,22 @@ class NeRFNetwork(NeRFRenderer):
         # x: [N, 3] in [-bound, bound]
         # mask: [N,], bool, indicates where we actually needs to compute rgb.
 
+        # normalize to [-1, 1]
+        x = x / self.bound
+
         if mask is not None:
+            rgbs = torch.zeros(mask.shape[0], 3, dtype=x.dtype, device=x.device) # [N, 3]
+            # in case of empty mask
+            if not mask.any():
+                return rgbs
             x = x[mask]
             d = d[mask]
 
         color_feat = self.get_color_feat(x)
-        enc_color_feat = self.encoder(color_feat)
-        enc_d = self.encoder_dir(d)
+        color_feat = self.encoder(color_feat)
+        d = self.encoder_dir(d)
 
-        h = torch.cat([enc_color_feat, enc_d], dim=-1)
+        h = torch.cat([color_feat, d], dim=-1)
         for l in range(self.num_layers):
             h = self.color_net[l](h)
             if l != self.num_layers - 1:
@@ -182,8 +189,7 @@ class NeRFNetwork(NeRFRenderer):
         h = torch.sigmoid(h)
 
         if mask is not None:
-            rgbs = torch.zeros(mask.shape[0], 3, dtype=h.dtype, device=h.device) # [N, 3]
-            rgbs[mask] = h
+            rgbs[mask] = h.to(rgbs.dtype)
         else:
             rgbs = h
 

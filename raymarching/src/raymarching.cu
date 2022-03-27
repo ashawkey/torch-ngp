@@ -23,7 +23,7 @@ inline constexpr __device__ float SQRT3() { return 1.73205080757f; }
 inline constexpr __device__ int MAX_STEPS() { return 1024; }
 inline constexpr __device__ float MIN_STEPSIZE() { return 2 * SQRT3() / MAX_STEPS(); } // still need to mul bound to get dt_min
 inline constexpr __device__ float MIN_NEAR() { return 0.05f; }
-inline constexpr __device__ float DT_GAMMA() { return 1.0f / 256.0f; }
+inline constexpr __device__ float DT_GAMMA() { return 0.0f / 256.0f; }
 
 // util functions
 template <typename T>
@@ -98,6 +98,7 @@ __global__ void kernel_march_rays_train(
     const float far = fminf(far_x, fminf(far_y, far_z));
 
     const float dt_min = MIN_STEPSIZE() * bound;
+    //const float dt_min = (far - near) / MAX_STEPS();
     const float dt_max = 2 * bound / (H - 1);
     const float dt_gamma = bound > 1 ? DT_GAMMA() : 0.0f;
 
@@ -149,9 +150,7 @@ __global__ void kernel_march_rays_train(
         }
     }
 
-    //printf("[n=%d] num_steps=%d\n", n, num_steps);
-    //printf("[n=%d] num_steps=%d, pc=%d, rc=%d\n", n, num_steps, counter[0], counter[1]);
-
+    //printf("[n=%d] num_steps=%d, near=%f, far=%f, dt=%f, max_steps=%f\n", n, num_steps, near, far, dt_min, (far - near) / dt_min);
 
     // second pass: really locate and write points & dirs
     uint32_t point_index = atomicAdd(counter, num_steps);

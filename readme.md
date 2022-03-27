@@ -44,7 +44,6 @@ Later development will be focused on reproducing the NeRF inference speed.
 
 # Install
 ```bash
-
 git clone --recursive https://github.com/ashawkey/torch-ngp.git
 
 cd torch-ngp
@@ -67,6 +66,7 @@ Please download and put them under `./data`.
 First time running will take some time to compile the CUDA extensions.
 
 ```bash
+### HashNeRF
 # train with different backbones (with slower pytorch ray marching)
 # for the colmap dataset, the default dataset setting `--mode colmap --bound 2 --scale 0.33` is used.
 python main_nerf.py data/fox --workspace trial_nerf # fp32 mode
@@ -93,10 +93,37 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box.
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 --gui
+
+### SDF
+python main_sdf.py data/armadillo.obj --workspace trial_sdf
+python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16
+python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff
+python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --tcnn
+
+python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff --test
+
+### TensoRF
+# almost the same as HashNeRF, just replace the main script.
+python main_tensoRF.py data/fox --workspace trial_tensoRF --fp16 --ff --cuda_ray
+python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 
+
 ```
 
 check the `scripts` directory for more provided examples.
 
+# Performance Reference
+Tested with the default settings on the Lego test dataset. Here the speed refers to the `iterations per second` on a TITAN RTX.
+| Model | PSNR | Train Speed | Test Speed |
+| - | - | - | - |
+| HashNeRF (`fp16`)                    | 32.22   |  24  | 0.56  |
+| HashNeRF (`fp16 + ff`)               | 32.81   |  24  | 0.79  |
+| HashNeRF (`fp16 + tcnn`)             | 32.72   |  20  | 0.37  |
+| HashNeRF (`fp16 + cuda_ray`)         | 32.54   |  65  | 6.4   |
+| HashNeRF (`fp16 + cuda_ray + ff`)    | 33.24   |  72  | 6.9   |
+| HashNeRF (`fp16 + cuda_ray + tcnn`)  | 33.11   |  60  | 5.8   |
+| TensoRF (`fp16`)                     | 33.79   |  18  | 0.53  |
+| TensoRF (`fp16 + cuda_ray`)          | 34.05   |  13  | 0.43  |
+ 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implement the linear interpolation mode.
@@ -104,6 +131,7 @@ check the `scripts` directory for more provided examples.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
 # Update Logs
+* 3.27: major update. basically improve performance, and support tensoRF model.
 * 3.22: reverted from pre-generating rays as it takes too much CPU memory, still the PSNR for Lego can reach ~33 now.
 * 3.14: fixed the precision related issue for `fp16` mode, and it renders much better quality. Added PSNR metric for NeRF.
     * known issue: PSNR is worse, for Lego test dataset is only ~30.
@@ -157,4 +185,17 @@ check the `scripts` directory for more provided examples.
         year = {2020},
     }
     ```
+
+* The official TensoRF [implementation](https://github.com/apchenstu/TensoRF):
+    ```
+    @misc{TensoRF,
+        title={TensoRF: Tensorial Radiance Fields},
+        author={Anpei Chen and Zexiang Xu and Andreas Geiger and and Jingyi Yu and Hao Su},
+        year={2022},
+        eprint={2203.09517},
+        archivePrefix={arXiv},
+        primaryClass={cs.CV}
+    }
+    ```
+
 * The NeRF GUI is developed with [DearPyGui](https://github.com/hoffstadt/DearPyGui).

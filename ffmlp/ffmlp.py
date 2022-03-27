@@ -17,8 +17,6 @@ class _ffmlp_forward(Function):
         
         B = inputs.shape[0]
 
-        assert B >= 128 and B % 128 == 0, f"ffmlp batch size must be 128 * m (m > 0), but got {B}."
-
         inputs = inputs.contiguous()
         weights = weights.contiguous()
 
@@ -148,12 +146,20 @@ class FFMLP(nn.Module):
         # return: [B, outupt_dim]
 
         #print('inputs', inputs.shape, inputs.dtype, inputs.min().item(), inputs.max().item(), inputs.requires_grad)
-    
+
+        B, C = inputs.shape
+        #assert B >= 128 and B % 128 == 0, f"ffmlp batch size must be 128 * m (m > 0), but got {B}."
+
+        # pad input
+        pad = 128 - (B % 128)
+        if pad > 0:
+            inputs = torch.cat([inputs, torch.zeros(pad, C, dtype=inputs.dtype, device=inputs.device)], dim=0)
+
         outputs = ffmlp_forward(inputs, self.weights, self.input_dim, self.padded_output_dim, self.hidden_dim, self.num_layers, self.activation, self.output_activation, not self.training, inputs.requires_grad)
 
         # unpad output
-        if self.padded_output_dim != self.output_dim:
-            outputs = outputs[:, :self.output_dim]
+        if B != outputs.shape[0] or self.padded_output_dim != self.output_dim:
+            outputs = outputs[:B, :self.output_dim]
     
         #print('outputs', outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())
 
