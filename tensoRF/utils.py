@@ -176,7 +176,7 @@ class Trainer(object):
                  workspace='workspace', # workspace to save logs & ckpts
                  best_mode='min', # the smaller/larger result, the better
                  use_loss_as_metric=True, # use loss as the first metric
-                 report_metric_at_train=True, # also report metrics at training
+                 report_metric_at_train=False, # also report metrics at training
                  use_checkpoint="latest", # which ckpt to use at init time
                  use_tensorboardX=True, # whether to use tensorboard for logging
                  scheduler_update_every_step=False, # whether to call scheduler.step() after every train step

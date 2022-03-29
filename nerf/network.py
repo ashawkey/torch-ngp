@@ -16,9 +16,9 @@ class NeRFNetwork(NeRFRenderer):
                  num_layers_color=3,
                  hidden_dim_color=64,
                  bound=1,
-                 cuda_ray=False,
+                 **kwargs,
                  ):
-        super().__init__(bound, cuda_ray)
+        super().__init__(bound, **kwargs)
 
         # sigma network
         self.num_layers = num_layers

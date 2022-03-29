@@ -85,7 +85,7 @@ class NeRFRenderer(nn.Module):
     def __init__(self,
                  bound=1,
                  cuda_ray=False,
-                 density_scale=25, # scale up deltas (or sigmas), to make the density grid more sharp. larger value than 1 usually improves performance.
+                 density_scale=1, # scale up deltas (or sigmas), to make the density grid more sharp. larger value than 1 usually improves performance.
                  ):
         super().__init__()
 
@@ -261,7 +261,7 @@ class NeRFRenderer(nn.Module):
             counter.zero_() # set to 0
             self.local_step += 1
 
-            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, perturb, 128, True)
+            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, perturb, 128, False)
             
             density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
             sigmas = density_outputs['sigma']
@@ -333,7 +333,7 @@ class NeRFRenderer(nn.Module):
 
                 raymarching.composite_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], sigmas, rgbs, deltas, weights_sum, depth, image)
 
-                #print(f'step = {step}, n_step = {n_step}, n_alive = {n_alive}')
+                #print(f'step = {step}, n_step = {n_step}, n_alive = {n_alive}, xyzs: {xyzs.shape}')
 
                 step += n_step
                 i += 1
@@ -348,7 +348,7 @@ class NeRFRenderer(nn.Module):
         return depth, image
 
     
-    def update_extra_state(self, decay=0.95):
+    def update_extra_state(self, decay=0.9):
         # call before each epoch to update extra states.
 
         if not self.cuda_ray:
@@ -376,9 +376,8 @@ class NeRFRenderer(nn.Module):
                         xyzs += (torch.rand_like(xyzs) * 2 - 1) * half_grid_size
                         # query density
                         sigmas = self.density(xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
-                        # change density to alpha in [0, 1]
-                        alphas = 1 - torch.exp(-self.density_scale * sigmas) # [B, N, T], fake deltas to 1 (it doesn't really matter)
-                        tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = alphas
+                        # the magic scale number is from `scalbnf(MIN_CONE_STEPSIZE(), level)`, don't ask me why...
+                        tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = sigmas * self.density_scale * 0.001691
         
         # maxpool to smooth
         #tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
@@ -395,7 +394,7 @@ class NeRFRenderer(nn.Module):
             self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
         self.local_step = 0
 
-        #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f} | [step counter] mean={self.mean_count}')
+        #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3):.3f} | [step counter] mean={self.mean_count}')
 
 
     def render(self, rays_o, rays_d, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, perturb=False, **kwargs):

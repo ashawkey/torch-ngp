@@ -59,6 +59,8 @@ class _march_rays_train(Function):
             dirs = dirs[:m]
             deltas = deltas[:m]
 
+            torch.cuda.empty_cache()
+
         return xyzs, dirs, deltas, rays
 
 march_rays_train = _march_rays_train.apply

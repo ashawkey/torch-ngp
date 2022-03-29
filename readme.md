@@ -115,15 +115,11 @@ check the `scripts` directory for more provided examples.
 Tested with the default settings on the Lego test dataset. Here the speed refers to the `iterations per second` on a TITAN RTX.
 | Model | PSNR | Train Speed | Test Speed |
 | - | - | - | - |
-| HashNeRF (`fp16`)                    | 32.22   |  24  | 0.56  |
-| HashNeRF (`fp16 + ff`)               | 32.81   |  24  | 0.79  |
-| HashNeRF (`fp16 + tcnn`)             | 32.72   |  20  | 0.37  |
-| HashNeRF (`fp16 + cuda_ray`)         | 32.54   |  65  | 6.4   |
-| HashNeRF (`fp16 + cuda_ray + ff`)    | 33.24   |  72  | 6.9   |
-| HashNeRF (`fp16 + cuda_ray + tcnn`)  | 33.11   |  60  | 5.8   |
-| TensoRF (`fp16`)                     | 33.79   |  18  | 0.53  |
-| TensoRF (`fp16 + cuda_ray`)          | 34.05   |  13  | 0.43  |
- 
+| HashNeRF (`fp16 + ff`)               | 32.84  |  22  | 0.54  |
+| HashNeRF (`fp16 + cuda_ray + ff`)    | 32.81  |  80  | 7.0   |
+| TensoRF (`fp16`)                     | 33.81  |  18  | 0.53  |
+| TensoRF (`fp16 + cuda_ray`)          | 33.83  |  46  | 3.4   | 
+
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implement the linear interpolation mode.
@@ -131,6 +127,7 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
 # Update Logs
+* 3.29: fix training speed for the fox dataset (balanced speed with performance...).
 * 3.27: major update. basically improve performance, and support tensoRF model.
 * 3.22: reverted from pre-generating rays as it takes too much CPU memory, still the PSNR for Lego can reach ~33 now.
 * 3.14: fixed the precision related issue for `fp16` mode, and it renders much better quality. Added PSNR metric for NeRF.
