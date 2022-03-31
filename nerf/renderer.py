@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import raymarching
+from .utils import custom_meshgrid
 
 def sample_pdf(bins, weights, n_samples, det=False):
     # This implementation is from NeRF
@@ -370,7 +371,7 @@ class NeRFRenderer(nn.Module):
                     for zi, zs in enumerate(Z):
                         lx, ly, lz = len(xs), len(ys), len(zs)
                         # construct points
-                        xx, yy, zz = torch.meshgrid(xs, ys, zs, indexing='ij')
+                        xx, yy, zz = custom_meshgrid(xs, ys, zs)
                         xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3]
                         # add noise in [-hgs, hgs]
                         xyzs += (torch.rand_like(xyzs) * 2 - 1) * half_grid_size

@@ -12,3 +12,4 @@ PyMCubes
 rich
 pysdf
 dearpygui
+packaging

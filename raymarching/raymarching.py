@@ -207,6 +207,7 @@ class _composite_rays(Function):
     @custom_fwd(cast_inputs=torch.float32) # need to cast sigmas & rgbs to float
     def forward(ctx, n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights_sum, depth, image):
         _backend.composite_rays(n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights_sum, depth, image)
+        return tuple()
 
 
 composite_rays = _composite_rays.apply
@@ -223,5 +224,6 @@ class _compact_rays(Function):
     @custom_fwd(cast_inputs=torch.float32)
     def forward(ctx, n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter):
         _backend.compact_rays(n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter)
+        return tuple()
 
 compact_rays = _compact_rays.apply

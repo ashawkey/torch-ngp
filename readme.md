@@ -2,44 +2,10 @@
 
 A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 
-**News**: With the CUDA ray marching option for NeRF, we can:
-* converge to a reasonable result in **~1min** (50 epochs). 
-* render a 1920x1080 image in **~1s**. 
-
-For the LEGO dataset, we can reach **~20FPS** at 800x800 due to efficient voxel pruning.
-
-(Tested with a TITAN RTX. The speed is still 2-5x slower compared to the original implementation.)
 
 **A GUI for training/visualizing NeRF is also available!**
 
 https://user-images.githubusercontent.com/25863658/155265815-c608254f-2f00-4664-a39d-e00eae51ca59.mp4
-
-
-# Progress
-
-As the official pytorch extension [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) has been released, the following implementations can be used as modular alternatives. 
-The performance and speed of these modules are guaranteed to be on-par, and we support using tinycudann as the backbone by the `--tcnn` flag.
-Later development will be focused on reproducing the NeRF inference speed.
-
-* Fully-fused MLP
-    - [x] basic pytorch binding of the [original implementation](https://github.com/NVlabs/tiny-cuda-nn)
-* HashGrid Encoder
-    - [x] basic pytorch CUDA extension
-    - [x] fp16 support 
-* Experiments
-    - SDF
-        - [x] baseline
-        - [ ] better SDF calculation (especially for non-watertight meshes)
-    - NeRF
-        - [x] baseline
-        - [x] ray marching in CUDA.
-* NeRF GUI
-    - [x] supports training.
-* Misc.
-    - [x] improve rendering quality of cuda raymarching!
-    - [ ] improve speed (e.g., avoid the `cat` in NeRF forward)
-    - [ ] support visualize/supervise normals (add rendering mode option).
-    - [x] support blender dataset format.
 
 
 # Install
@@ -126,7 +92,34 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 * For the voxel pruning in ray marching kernels, this repo doesn't implement the multi-scale density grid (check the `mip` keyword), and only use one `128x128x128` grid for simplicity. Instead of updating the grid every 16 steps, we update it every epoch, which may lead to slower first few epochs if using `--cuda_ray`.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 
+
+# Progress
+
+As the official pytorch extension [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) has been released, the following implementations can be used as modular alternatives. 
+The performance and speed of these modules are guaranteed to be on-par, and we support using tinycudann as the backbone by the `--tcnn` flag.
+
+* Fully-fused MLP
+    - [x] basic pytorch binding of the [original implementation](https://github.com/NVlabs/tiny-cuda-nn)
+* HashGrid Encoder
+    - [x] basic pytorch CUDA extension
+    - [x] fp16 support 
+* Experiments
+    - SDF
+        - [x] baseline
+        - [ ] better SDF calculation (especially for non-watertight meshes)
+    - NeRF
+        - [x] baseline
+        - [x] ray marching in CUDA.
+* NeRF GUI
+    - [x] supports training.
+* Misc.
+    - [x] improve rendering quality of cuda raymarching!
+    - [ ] improve speed (e.g., avoid the `cat` in NeRF forward)
+    - [ ] support visualize/supervise normals (add rendering mode option).
+    - [x] support blender dataset format.
+
 # Update Logs
+* 3.31: better compatibility for lower pytorch versions.
 * 3.29: fix training speed for the fox dataset (balanced speed with performance...).
 * 3.27: major update. basically improve performance, and support tensoRF model.
 * 3.22: reverted from pre-generating rays as it takes too much CPU memory, still the PSNR for Lego can reach ~33 now.
