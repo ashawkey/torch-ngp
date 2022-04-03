@@ -406,6 +406,9 @@ class Trainer(object):
     def train(self, train_loader, valid_loader, max_epochs):
         if self.use_tensorboardX and self.local_rank == 0:
             self.writer = tensorboardX.SummaryWriter(os.path.join(self.workspace, "run", self.name))
+
+        if self.model.cuda_ray:
+            self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
         
         for epoch in range(self.epoch, max_epochs + 1):
             self.epoch = epoch
@@ -469,7 +472,6 @@ class Trainer(object):
 
         self.model.train()
 
-
         total_loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         
         loader = iter(train_loader)
@@ -483,8 +485,12 @@ class Trainer(object):
                 loader = iter(train_loader)
                 data = next(loader)
 
-            # update grid
-            if self.model.cuda_ray and self.global_step % 100 == 0:
+            # mark untrained grid
+            if self.global_step == 0:
+                self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
+
+            # update grid every 100 steps
+            if self.model.cuda_ray and self.global_step % 16 == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
             

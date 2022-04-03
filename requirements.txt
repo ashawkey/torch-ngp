@@ -13,3 +13,4 @@ rich
 pysdf
 dearpygui
 packaging
+scipy

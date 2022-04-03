@@ -1,3 +1,4 @@
+import numpy as np
 import trimesh
 
 import torch
@@ -348,8 +349,63 @@ class NeRFRenderer(nn.Module):
 
         return depth, image
 
+    @torch.no_grad()
+    def mark_untrained_grid(self, poses, intrinsic, S=64):
+        # poses: [B, 4, 4]
+        # intrinsic: [3, 3]
+
+        if not self.cuda_ray:
+            return
+        
+        if isinstance(poses, np.ndarray):
+            poses = torch.from_numpy(poses)
+        
+        fx = intrinsic[0, 0]
+        fy = intrinsic[1, 1]
+        cx = intrinsic[0, 2]
+        cy = intrinsic[1, 2]
     
-    def update_extra_state(self, decay=0.9):
+        resolution = self.density_grid.shape[0]
+
+        half_grid_size = self.bound / resolution
+        
+        X = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+        Y = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+        Z = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+
+        count = torch.zeros_like(self.density_grid)
+        poses = poses.to(count.device)
+
+        with torch.no_grad():
+            for xi, xs in enumerate(X):
+                for yi, ys in enumerate(Y):
+                    for zi, zs in enumerate(Z):
+                        lx, ly, lz = len(xs), len(ys), len(zs)
+                        # construct points
+                        xx, yy, zz = custom_meshgrid(xs, ys, zs)
+                        xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
+
+                        # world2cam transform (poses is c2w, so we need to transpose)
+                        #print(xyzs.shape, poses.shape)
+                        xyzs = xyzs - poses[:, :3, 3].unsqueeze(1)
+                        xyzs = xyzs @ poses[:, :3, :3].transpose(1, 2) # [B, N, 3]
+                        
+                        # query if point is covered by any camera
+                        mask_z = xyzs[:, :, 2] > 0 # [B, N]
+                        mask_x = torch.abs(xyzs[:, :, 0]) < cx / fx * xyzs[:, :, 2] + half_grid_size * 2
+                        mask_y = torch.abs(xyzs[:, :, 1]) < cy / fy * xyzs[:, :, 2] + half_grid_size * 2
+                        mask = (mask_z & mask_x & mask_y).sum(0).reshape(lx, ly, lz) # [N] --> [lx, ly, lz]
+
+                        # update count 
+                        count[xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] += mask
+        
+        # mark untrained grid as -1
+        self.density_grid[count == 0] = -1
+
+        #print(f'[mark untrained grid] {(count == 0).sum()} from {resolution ** 3}')
+
+    @torch.no_grad()
+    def update_extra_state(self, decay=0.9, S=128):
         # call before each epoch to update extra states.
 
         if not self.cuda_ray:
@@ -360,33 +416,34 @@ class NeRFRenderer(nn.Module):
 
         half_grid_size = self.bound / resolution
         
-        X = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(128)
-        Y = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(128)
-        Z = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(128)
+        X = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+        Y = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+        Z = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
 
         tmp_grid = torch.zeros_like(self.density_grid)
-        with torch.no_grad():
-            for xi, xs in enumerate(X):
-                for yi, ys in enumerate(Y):
-                    for zi, zs in enumerate(Z):
-                        lx, ly, lz = len(xs), len(ys), len(zs)
-                        # construct points
-                        xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                        xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3]
-                        # add noise in [-hgs, hgs]
-                        xyzs += (torch.rand_like(xyzs) * 2 - 1) * half_grid_size
-                        # query density
-                        sigmas = self.density(xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
-                        # the magic scale number is from `scalbnf(MIN_CONE_STEPSIZE(), level)`, don't ask me why...
-                        tmp_grid[xi * 128: xi * 128 + lx, yi * 128: yi * 128 + ly, zi * 128: zi * 128 + lz] = sigmas * self.density_scale * 0.001691
+    
+        for xi, xs in enumerate(X):
+            for yi, ys in enumerate(Y):
+                for zi, zs in enumerate(Z):
+                    lx, ly, lz = len(xs), len(ys), len(zs)
+                    # construct points
+                    xx, yy, zz = custom_meshgrid(xs, ys, zs)
+                    xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3]
+                    # add noise in [-hgs, hgs]
+                    xyzs += (torch.rand_like(xyzs) * 2 - 1) * half_grid_size
+                    # query density
+                    sigmas = self.density(xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
+                    # the magic scale number is from `scalbnf(MIN_CONE_STEPSIZE(), level)`, don't ask me why...
+                    tmp_grid[xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas * self.density_scale * 0.001691
         
         # maxpool to smooth
         #tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
         #tmp_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
 
         # ema update
-        self.density_grid = torch.maximum(self.density_grid * decay, tmp_grid)
-        self.mean_density = torch.mean(self.density_grid).item()
+        valid_mask = self.density_grid >= 0
+        self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
+        self.mean_density = torch.mean(self.density_grid[valid_mask]).item()
         self.iter_density += 1
 
         ### update step counter

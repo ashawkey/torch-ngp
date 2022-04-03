@@ -56,9 +56,19 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
 # for the blender dataset, you should add `--mode blender --bound 1.5 --scale 1.0`
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
-# --scale adjusts the camera locaction to make sure it falls inside the above bounding box.
+# --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 --gui
+
+# for custom dataset, you should:
+# 1. take a video / many photos from different views 
+# 2. put the video under a path like ./data/custom/video.mp4 or the images under ./data/custom/images/*.jpg.
+# 3. call the preprocess code: (should install ffmpeg and colmap first! refer to the file for more options)
+python colmap2nerf.py --video ./data/custom/video.mp4 --run_colmap # if use video
+python colmap2nerf.py --images ./data/custom/images/ --run_colmap # if use images
+# 4. it should create the transform.json, and you can train with: (--scale and --bound may need trial-and-error to get a better result.)
+python main_nerf.py data/custom --workspace trial_nerf_custom --fp16 --ff --cuda_ray --gui --scale 2 --bound 0.33
+
 
 ### SDF
 python main_sdf.py data/armadillo.obj --workspace trial_sdf
@@ -119,6 +129,7 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Logs
+* 4.3: add `mark_untrained_grid` to prevent training on out-of-camera regions. Add custom dataset instructions.
 * 3.31: better compatibility for lower pytorch versions.
 * 3.29: fix training speed for the fox dataset (balanced speed with performance...).
 * 3.27: major update. basically improve performance, and support tensoRF model.
