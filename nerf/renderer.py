@@ -359,6 +359,8 @@ class NeRFRenderer(nn.Module):
         
         if isinstance(poses, np.ndarray):
             poses = torch.from_numpy(poses)
+
+        B = poses.shape[0]
         
         fx = intrinsic[0, 0]
         fy = intrinsic[1, 1]
@@ -385,19 +387,24 @@ class NeRFRenderer(nn.Module):
                         xx, yy, zz = custom_meshgrid(xs, ys, zs)
                         xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
 
-                        # world2cam transform (poses is c2w, so we need to transpose)
-                        #print(xyzs.shape, poses.shape)
-                        xyzs = xyzs - poses[:, :3, 3].unsqueeze(1)
-                        xyzs = xyzs @ poses[:, :3, :3].transpose(1, 2) # [B, N, 3]
-                        
-                        # query if point is covered by any camera
-                        mask_z = xyzs[:, :, 2] > 0 # [B, N]
-                        mask_x = torch.abs(xyzs[:, :, 0]) < cx / fx * xyzs[:, :, 2] + half_grid_size * 2
-                        mask_y = torch.abs(xyzs[:, :, 1]) < cy / fy * xyzs[:, :, 2] + half_grid_size * 2
-                        mask = (mask_z & mask_x & mask_y).sum(0).reshape(lx, ly, lz) # [N] --> [lx, ly, lz]
+                        # split batch to avoid OOM
+                        head = 0
+                        while head < B:
+                            tail = min(head + S, B)
 
-                        # update count 
-                        count[xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] += mask
+                            # world2cam transform (poses is c2w, so we need to transpose)
+                            xyzs = xyzs - poses[head:tail, :3, 3].unsqueeze(1)
+                            xyzs = xyzs @ poses[head:tail, :3, :3].transpose(1, 2) # [S, N, 3]
+                            
+                            # query if point is covered by any camera
+                            mask_z = xyzs[:, :, 2] > 0 # [S, N]
+                            mask_x = torch.abs(xyzs[:, :, 0]) < cx / fx * xyzs[:, :, 2] + half_grid_size * 2
+                            mask_y = torch.abs(xyzs[:, :, 1]) < cy / fy * xyzs[:, :, 2] + half_grid_size * 2
+                            mask = (mask_z & mask_x & mask_y).sum(0).reshape(lx, ly, lz) # [N] --> [lx, ly, lz]
+
+                            # update count 
+                            count[xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] += mask
+                            head += S
         
         # mark untrained grid as -1
         self.density_grid[count == 0] = -1

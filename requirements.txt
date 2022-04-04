@@ -3,7 +3,7 @@ ninja
 trimesh
 opencv-python
 tensorboardX
-torch>=1.10
+torch
 numpy 
 pandas
 tqdm
