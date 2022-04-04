@@ -385,7 +385,7 @@ class NeRFRenderer(nn.Module):
                         lx, ly, lz = len(xs), len(ys), len(zs)
                         # construct points
                         xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                        xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
+                        world_xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
 
                         # split batch to avoid OOM
                         head = 0
@@ -393,13 +393,13 @@ class NeRFRenderer(nn.Module):
                             tail = min(head + S, B)
 
                             # world2cam transform (poses is c2w, so we need to transpose)
-                            xyzs = xyzs - poses[head:tail, :3, 3].unsqueeze(1)
-                            xyzs = xyzs @ poses[head:tail, :3, :3].transpose(1, 2) # [S, N, 3]
+                            cam_xyzs = world_xyzs - poses[head:tail, :3, 3].unsqueeze(1)
+                            cam_xyzs = cam_xyzs @ poses[head:tail, :3, :3].transpose(1, 2) # [S, N, 3]
                             
                             # query if point is covered by any camera
-                            mask_z = xyzs[:, :, 2] > 0 # [S, N]
-                            mask_x = torch.abs(xyzs[:, :, 0]) < cx / fx * xyzs[:, :, 2] + half_grid_size * 2
-                            mask_y = torch.abs(xyzs[:, :, 1]) < cy / fy * xyzs[:, :, 2] + half_grid_size * 2
+                            mask_z = cam_xyzs[:, :, 2] > 0 # [S, N]
+                            mask_x = torch.abs(cam_xyzs[:, :, 0]) < cx / fx * cam_xyzs[:, :, 2] + half_grid_size * 2
+                            mask_y = torch.abs(cam_xyzs[:, :, 1]) < cy / fy * cam_xyzs[:, :, 2] + half_grid_size * 2
                             mask = (mask_z & mask_x & mask_y).sum(0).reshape(lx, ly, lz) # [N] --> [lx, ly, lz]
 
                             # update count 
