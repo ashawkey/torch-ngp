@@ -129,13 +129,13 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Logs
+* 4.6: fixed TensorCP hyper-parameters.
 * 4.3: add `mark_untrained_grid` to prevent training on out-of-camera regions. Add custom dataset instructions.
 * 3.31: better compatibility for lower pytorch versions.
 * 3.29: fix training speed for the fox dataset (balanced speed with performance...).
 * 3.27: major update. basically improve performance, and support tensoRF model.
 * 3.22: reverted from pre-generating rays as it takes too much CPU memory, still the PSNR for Lego can reach ~33 now.
 * 3.14: fixed the precision related issue for `fp16` mode, and it renders much better quality. Added PSNR metric for NeRF.
-    * known issue: PSNR is worse, for Lego test dataset is only ~30.
 * 3.14: linearly scale `desired_resolution` with `bound` according to https://github.com/ashawkey/torch-ngp/issues/23.
     * known issue: very large bound (e.g., 16) leads to bad performance. Better to scale down the camera to fit into a smaller bounding box.
 * 3.11: raymarching now supports supervising weights_sum (pixel alpha, or mask) directly, and bg_color is separated from CUDA to make it more flexible. Add an option to preload data into GPU.
@@ -145,15 +145,12 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
 * 2.23: better support for the blender dataset.
 * 2.22: add GUI for NeRF training.
 * 2.21: add GUI for NeRF visualizing. 
-    * known issue: noisy artefacts outside the camera covered region. It is related to `mark_untrained_density_grid` in instant-ngp.
 * 2.20: cuda raymarching is finally stable now!
 * 2.15: add the official [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) as an alternative backend.    
 * 2.10: add cuda_ray, can train/infer faster, but performance is worse currently.
 * 2.6: add support for RGBA image.
 * 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
-* 1.29: 
-    * finished an experimental binding of fully-fused MLP.
-    * replace SHEncoder with a CUDA implementation.
+* 1.29: finished an experimental binding of fully-fused MLP. replace SHEncoder with a CUDA implementation.
 * 1.26: add fp16 support for HashGrid Encoder (requires CUDA >= 10 and GPU ARCH >= 70 for now...).
 
 

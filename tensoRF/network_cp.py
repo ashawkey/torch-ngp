@@ -11,8 +11,8 @@ from nerf.renderer import NeRFRenderer
 class NeRFNetwork(NeRFRenderer):
     def __init__(self,
                  resolution=[128] * 3,
-                 sigma_rank=[16] * 3,
-                 color_rank=[48] * 3,
+                 sigma_rank=[96] * 3, # ref: https://github.com/apchenstu/TensoRF/commit/7f505875a9f321fa8439a8d5c6a15fc7d2f17303
+                 color_rank=[288] * 3,
                  color_feat_dim=27,
                  num_layers=3,
                  hidden_dim=128,

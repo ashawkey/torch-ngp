@@ -61,7 +61,6 @@ def lift(x, y, z, intrinsics):
     # homogeneous
     return torch.stack((x_lift, y_lift, z), dim=-1)
 
-# Never cast get_rays! fp16 rays degenerates results seriously!
 @torch.cuda.amp.autocast(enabled=False)
 def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     # c2w: [B, 4, 4]
