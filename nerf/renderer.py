@@ -1,5 +1,6 @@
-import numpy as np
+import math
 import trimesh
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -64,15 +65,15 @@ class NeRFRenderer(nn.Module):
                  ):
         super().__init__()
 
-
         self.bound = bound
+        self.cascade = 1 + math.ceil(math.log2(bound))
         self.density_scale = density_scale
 
         # extra state for cuda raymarching
         self.cuda_ray = cuda_ray
         if cuda_ray:
             # density grid
-            density_grid = torch.zeros([128] * 3)
+            density_grid = torch.zeros([self.cascade] + [128] * 3) # [CAS, H, H, H]
             self.register_buffer('density_grid', density_grid)
             self.mean_density = 0
             self.iter_density = 0
@@ -341,25 +342,30 @@ class NeRFRenderer(nn.Module):
         cx = intrinsic[0, 2]
         cy = intrinsic[1, 2]
     
-        resolution = self.density_grid.shape[0]
-
-        half_grid_size = self.bound / resolution
+        resolution = self.density_grid.shape[1]
         
-        X = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
-        Y = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
-        Z = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+        X = torch.linspace(-1, 1, resolution).split(S)
+        Y = torch.linspace(-1, 1, resolution).split(S)
+        Z = torch.linspace(-1, 1, resolution).split(S)
 
         count = torch.zeros_like(self.density_grid)
         poses = poses.to(count.device)
 
-        with torch.no_grad():
-            for xi, xs in enumerate(X):
-                for yi, ys in enumerate(Y):
-                    for zi, zs in enumerate(Z):
-                        lx, ly, lz = len(xs), len(ys), len(zs)
-                        # construct points
-                        xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                        world_xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
+        # 5-level loop, forgive me...
+        for xi, xs in enumerate(X):
+            for yi, ys in enumerate(Y):
+                for zi, zs in enumerate(Z):
+                    lx, ly, lz = len(xs), len(ys), len(zs)
+                    # construct points
+                    xx, yy, zz = custom_meshgrid(xs, ys, zs)
+                    world_xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
+
+                    # cascading
+                    for cas in range(self.cascade):
+                        bound = min(2 ** cas, self.bound)
+                        half_grid_size = bound / resolution
+                        # scale to current cascade's resolution
+                        cas_world_xyzs = world_xyzs * (bound - half_grid_size)
 
                         # split batch to avoid OOM
                         head = 0
@@ -367,7 +373,7 @@ class NeRFRenderer(nn.Module):
                             tail = min(head + S, B)
 
                             # world2cam transform (poses is c2w, so we need to transpose)
-                            cam_xyzs = world_xyzs - poses[head:tail, :3, 3].unsqueeze(1)
+                            cam_xyzs = cas_world_xyzs - poses[head:tail, :3, 3].unsqueeze(1)
                             cam_xyzs = cam_xyzs @ poses[head:tail, :3, :3].transpose(1, 2) # [S, N, 3]
                             
                             # query if point is covered by any camera
@@ -377,13 +383,13 @@ class NeRFRenderer(nn.Module):
                             mask = (mask_z & mask_x & mask_y).sum(0).reshape(lx, ly, lz) # [N] --> [lx, ly, lz]
 
                             # update count 
-                            count[xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] += mask
+                            count[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] += mask
                             head += S
-        
+    
         # mark untrained grid as -1
         self.density_grid[count == 0] = -1
 
-        #print(f'[mark untrained grid] {(count == 0).sum()} from {resolution ** 3}')
+        #print(f'[mark untrained grid] {(count == 0).sum()} from {resolution ** 3 * self.cascade}')
 
     @torch.no_grad()
     def update_extra_state(self, decay=0.9, S=128):
@@ -393,34 +399,43 @@ class NeRFRenderer(nn.Module):
             return 
         
         ### update density grid
-        resolution = self.density_grid.shape[0]
+        resolution = self.density_grid.shape[1]
 
         half_grid_size = self.bound / resolution
         
-        X = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
-        Y = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
-        Z = torch.linspace(-self.bound + half_grid_size, self.bound - half_grid_size, resolution).split(S)
+        X = torch.linspace(-1, 1, resolution).split(S)
+        Y = torch.linspace(-1, 1, resolution).split(S)
+        Z = torch.linspace(-1, 1, resolution).split(S)
 
         tmp_grid = torch.zeros_like(self.density_grid)
-    
+
+        # TODO: random sample coordinates after a warm up, instead of always uniformly query all cascades!
+
         for xi, xs in enumerate(X):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
                     lx, ly, lz = len(xs), len(ys), len(zs)
                     # construct points
                     xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                    xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3]
-                    # add noise in [-hgs, hgs]
-                    xyzs += (torch.rand_like(xyzs) * 2 - 1) * half_grid_size
-                    # query density
-                    sigmas = self.density(xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
-                    # the magic scale number is from `scalbnf(MIN_CONE_STEPSIZE(), level)`, don't ask me why...
-                    tmp_grid[xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas * self.density_scale * 0.001691
-        
-        # maxpool to smooth
-        #tmp_grid = F.pad(tmp_grid, (0, 1, 0, 1, 0, 1))
-        #tmp_grid = F.max_pool3d(tmp_grid.unsqueeze(0).unsqueeze(0), kernel_size=2, stride=1).squeeze(0).squeeze(0)
+                    xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3], in [-1, 1]
 
+                    # cascading
+                    for cas in range(self.cascade):
+                        bound = min(2 ** cas, self.bound)
+                        half_grid_size = bound / resolution
+                        # scale to current cascade's resolution
+                        cas_xyzs = xyzs * (bound - half_grid_size)
+                        # add noise in [-hgs, hgs]
+                        cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
+                        # query density
+                        sigmas = self.density(cas_xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
+                        # magic scale from `scalbnf(MIN_CONE_STEPSIZE(), 0)`, check `splat_grid_samples_nerf_max_nearest_neighbor`
+                        sigmas *= self.density_scale * 0.001691
+                        # assign 
+                        tmp_grid[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas
+        
+        # TODO: check `bitfield_max_pool`, should apply max pool across consequent cascades!
+        
         # ema update
         valid_mask = self.density_grid >= 0
         self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
@@ -433,7 +448,7 @@ class NeRFRenderer(nn.Module):
             self.mean_count = int(self.step_counter[:total_step, 0].sum().item() / total_step)
         self.local_step = 0
 
-        #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3):.3f} | [step counter] mean={self.mean_count}')
+        #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
 
 
     def render(self, rays_o, rays_d, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, perturb=False, **kwargs):

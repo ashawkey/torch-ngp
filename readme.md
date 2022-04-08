@@ -53,12 +53,12 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
 # test mode for GUI
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui --test
 
-# for the blender dataset, you should add `--mode blender --bound 1.5 --scale 1.0`
+# for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8`
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --gui
 
 # for custom dataset, you should:
 # 1. take a video / many photos from different views 
@@ -81,7 +81,7 @@ python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff --test
 ### TensoRF
 # almost the same as HashNeRF, just replace the main script.
 python main_tensoRF.py data/fox --workspace trial_tensoRF --fp16 --ff --cuda_ray
-python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF --fp16 --ff --cuda_ray --mode blender --bound 1.5 --scale 1.0 
+python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 
 
 ```
 
@@ -129,6 +129,7 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Logs
+* 4.9: implemented multi-res density grid (cascade) and adaptive ray marching. Now the fox renders much faster!
 * 4.6: fixed TensorCP hyper-parameters.
 * 4.3: add `mark_untrained_grid` to prevent training on out-of-camera regions. Add custom dataset instructions.
 * 3.31: better compatibility for lower pytorch versions.

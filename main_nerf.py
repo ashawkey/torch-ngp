@@ -57,7 +57,7 @@ if __name__ == '__main__':
     model = NeRFNetwork(
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1 if opt.mode == 'colmap' else 25,
+        density_scale=1 if opt.mode == 'colmap' else 100,
     )
     
     print(model)

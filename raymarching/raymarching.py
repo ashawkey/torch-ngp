@@ -53,7 +53,7 @@ class _march_rays_train(Function):
         Args:
             rays_o/d: float, [N, 3]
             bound: float, scalar
-            density_grid: float, [H, H, H]
+            density_grid: float, [C, H, H, H]
             mean_density: float, scalar
             nears/fars: float, [N]
             step_counter: int32, (2), used to count the actual number of generated points.
@@ -72,7 +72,9 @@ class _march_rays_train(Function):
         rays_d = rays_d.contiguous().view(-1, 3)
 
         N = rays_o.shape[0] # num rays
-        H = density_grid.shape[0] # grid resolution
+
+        C = density_grid.shape[0] # grid cascade
+        H = density_grid.shape[1] # grid resolution
 
         M = N * 1024 # init max points number in total, hardcoded
 
@@ -91,7 +93,7 @@ class _march_rays_train(Function):
         if step_counter is None:
             step_counter = torch.zeros(2, dtype=torch.int32, device=rays_o.device) # point counter, ray counter
 
-        _backend.march_rays_train(rays_o, rays_d, density_grid, mean_density, bound, N, H, M, nears, fars, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
+        _backend.march_rays_train(rays_o, rays_d, density_grid, mean_density, bound, N, C, H, M, nears, fars, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
 
         #print(step_counter, M)
 
@@ -225,7 +227,7 @@ class _march_rays(Function):
             rays_t: float, [N], the alive rays' time, we only use the first n_alive.
             rays_o/d: float, [N, 3]
             bound: float, scalar
-            density_grid: float, [H, H, H]
+            density_grid: float, [C, H, H, H]
             mean_density: float, scalar
             nears/fars: float, [N]
             align: int, pad output so its size is dividable by align, set to -1 to disable.
@@ -239,7 +241,8 @@ class _march_rays(Function):
         rays_o = rays_o.contiguous().view(-1, 3)
         rays_d = rays_d.contiguous().view(-1, 3)
 
-        H = density_grid.shape[0] # grid resolution
+        C = density_grid.shape[0] # grid cascade
+        H = density_grid.shape[1] # grid resolution
         M = n_alive * n_step
 
         if align > 0:
@@ -249,21 +252,13 @@ class _march_rays(Function):
         dirs = torch.zeros(M, 3, dtype=rays_o.dtype, device=rays_o.device)
         deltas = torch.zeros(M, 2, dtype=rays_o.dtype, device=rays_o.device) # 2 vals, one for rgb, one for depth
 
-        _backend.march_rays(n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, H, density_grid, mean_density, near, far, xyzs, dirs, deltas, perturb)
+        _backend.march_rays(n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, C, H, density_grid, mean_density, near, far, xyzs, dirs, deltas, perturb)
 
         return xyzs, dirs, deltas
 
 march_rays = _march_rays.apply
 
 
-### composite_rays 
-# modify rays_alive to -1 if it is dead.(actual_step < step, indicated by dt <= 0)
-# inputs:
-#   n_alive: int
-#   n_step: int
-#   rays_alive: int [n]
-#   sigmas, rgbs, deltas: float [n_alive * n_step, 1/3/2]
-#   depth, image, weights_sum: float [N, 1/3/1]
 class _composite_rays(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32) # need to cast sigmas & rgbs to float
@@ -288,13 +283,7 @@ class _composite_rays(Function):
 
 composite_rays = _composite_rays.apply
 
-### compact_rays
-# inputs:
-#   rays_alive_old
-#   rays_t_old
-# outputs:
-#   rays_alive
-#   rays_t
+
 class _compact_rays(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)

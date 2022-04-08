@@ -488,7 +488,7 @@ class Trainer(object):
             if self.global_step == 0:
                 self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
 
-            # update grid every 100 steps
+            # update grid every 16 steps
             if self.model.cuda_ray and self.global_step % 16 == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
