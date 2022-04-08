@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <stdint.h>
 #include <stdexcept>
+#include <limits>
 
 #include "pcg32.h"
 
@@ -28,11 +29,11 @@ inline constexpr __device__ float DT_GAMMA() { return 0.0f / 256.0f; }
 // util functions
 template <typename T>
 __host__ __device__ T div_round_up(T val, T divisor) {
-	return (val + divisor - 1) / divisor;
+    return (val + divisor - 1) / divisor;
 }
 
 inline __host__ __device__ float signf(float x) {
-	return copysignf(1.0, x);
+    return copysignf(1.0, x);
 }
 
 inline __host__ __device__ float clamp(float x, const float min, const float max) {
@@ -40,7 +41,90 @@ inline __host__ __device__ float clamp(float x, const float min, const float max
 }
 
 inline __host__ __device__ void swapf(float& a, float& b) {
-	float c = a; a = b; b = c;
+    float c = a; a = b; b = c;
+}
+
+
+////////////////////////////////////////////////////
+/////////////           utils          /////////////
+////////////////////////////////////////////////////
+
+// rays_o/d: [N, 3]
+// nears/fars: [N]
+// scalar_t should always be float in use.
+template <typename scalar_t>
+__global__ void kernel_near_far_from_bound(
+    const scalar_t * __restrict__ rays_o,
+    const scalar_t * __restrict__ rays_d,
+    const float bound,
+    const uint32_t N,
+    const float min_near,
+    scalar_t * nears, scalar_t * fars
+) {
+    // parallel per ray
+    const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
+    if (n >= N) return;
+
+    // locate
+    rays_o += n * 3;
+    rays_d += n * 3;
+
+    const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
+    const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
+    const float rdx = 1 / dx, rdy = 1 / dy, rdz = 1 / dz;
+
+    // get near far (assume cube scene)
+    float near = (-bound - ox) * rdx;
+    float far = (bound - ox) * rdx;
+    if (near > far) swapf(near, far);
+
+    float near_y = (-bound - oy) * rdy;
+    float far_y = (bound - oy) * rdy;
+    if (near_y > far_y) swapf(near_y, far_y);
+
+    if (near > far_y || near_y > far) {
+        nears[n] = fars[n] = std::numeric_limits<scalar_t>::max();
+        return;
+    }
+
+    if (near_y > near) near = near_y;
+    if (far_y < far) far = far_y;
+
+    float near_z = (-bound - oz) * rdz;
+    float far_z = (bound - oz) * rdz;
+    if (near_z > far_z) swapf(near_z, far_z);
+
+    if (near > far_z || near_z > far) {
+        nears[n] = fars[n] = std::numeric_limits<scalar_t>::max();
+        return;
+    }
+
+    if (near_z > near) near = near_z;
+    if (far_z < far) far = far_z;
+
+    if (near < min_near) near = min_near;
+
+    nears[n] = near;
+    fars[n] = far;
+}
+
+
+void near_far_from_bound(at::Tensor rays_o, at::Tensor rays_d, const float bound, const uint32_t N, const float min_near, at::Tensor nears, at::Tensor fars) {
+    CHECK_CUDA(rays_o);
+    CHECK_CUDA(rays_d);
+
+    CHECK_CONTIGUOUS(rays_o);
+    CHECK_CONTIGUOUS(rays_d);
+
+    CHECK_IS_FLOATING(rays_o);
+    CHECK_IS_FLOATING(rays_d);
+
+    static constexpr uint32_t N_THREAD = 256;
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+    rays_o.scalar_type(), "near_far_from_bound", ([&] {
+        kernel_near_far_from_bound<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), bound, N, min_near, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>());
+    }));
 }
 
 ////////////////////////////////////////////////////
@@ -58,9 +142,10 @@ __global__ void kernel_march_rays_train(
     const scalar_t * __restrict__ rays_d,  
     const scalar_t * __restrict__ grid,
     const float mean_density,
-    const int iter_density,
     const float bound,
     const uint32_t N, const uint32_t H, const uint32_t M,
+    const scalar_t* __restrict__ nears, 
+    const scalar_t* __restrict__ fars,
     scalar_t * xyzs, scalar_t * dirs, scalar_t * deltas,
     int * rays,
     int * counter,
@@ -83,19 +168,8 @@ __global__ void kernel_march_rays_train(
     const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
     const float rdx = 1 / dx, rdy = 1 / dy, rdz = 1 / dz;
 
-    // get near far (assume cube scene)
-    float near_x = (-bound - ox) * rdx;
-    float far_x = (bound - ox) * rdx;
-    if (near_x > far_x) swapf(near_x, far_x);
-    float near_y = (-bound - oy) * rdy;
-    float far_y = (bound - oy) * rdy;
-    if (near_y > far_y) swapf(near_y, far_y);
-    float near_z = (-bound - oz) * rdz;
-    float far_z = (bound - oz) * rdz;
-    if (near_z > far_z) swapf(near_z, far_z);
-
-    const float near = fmaxf(fmaxf(near_x, fmaxf(near_y, near_z)), MIN_NEAR()); // hardcoded minimal near distance
-    const float far = fminf(far_x, fminf(far_y, far_z));
+    const float near = nears[n];
+    const float far = fars[n];
 
     const float dt_min = MIN_STEPSIZE() * bound;
     //const float dt_min = (far - near) / MAX_STEPS();
@@ -342,7 +416,6 @@ __global__ void kernel_composite_rays_train_forward(
     const scalar_t * __restrict__ weights,
     const scalar_t * __restrict__ rgbs,  
     const int * __restrict__ rays,
-    const float bound,
     const uint32_t M, const uint32_t N,
     scalar_t * weights_sum,
     scalar_t * image
@@ -422,8 +495,7 @@ __global__ void kernel_composite_rays_train_backward(
     const scalar_t * __restrict__ rgbs,  
     const int * __restrict__ rays,
     const scalar_t * __restrict__ weights_sum,
-    const scalar_t * __restrict__ image,  
-    const float bound,
+    const scalar_t * __restrict__ image,
     const uint32_t M, const uint32_t N,
     scalar_t * grad_weights,
     scalar_t * grad_rgbs
@@ -493,7 +565,7 @@ __global__ void kernel_composite_rays_train_backward(
 }
 
 
-void march_rays_train(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const int iter_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, const uint32_t perturb) {
+void march_rays_train(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const float bound, const uint32_t N, const uint32_t H, const uint32_t M, at::Tensor nears, at::Tensor fars, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, const uint32_t perturb) {
     CHECK_CUDA(rays_o);
     CHECK_CUDA(rays_d);
     CHECK_CUDA(grid);
@@ -510,9 +582,10 @@ void march_rays_train(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, con
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "march_rays_train", ([&] {
-        kernel_march_rays_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, iter_density, bound, N, H, M, xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
+        kernel_march_rays_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<scalar_t>(), mean_density, bound, N, H, M, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
     }));
 }
+
 
 void composite_weights_forward(at::Tensor sigmas, at::Tensor deltas, at::Tensor rays, const uint32_t M, const uint32_t N, at::Tensor weights) {
 
@@ -539,6 +612,7 @@ void composite_weights_forward(at::Tensor sigmas, at::Tensor deltas, at::Tensor 
     }));
 
 }
+
 
 void composite_weights_backward(at::Tensor grad_weights, at::Tensor sigmas, at::Tensor deltas, at::Tensor rays, const uint32_t M, const uint32_t N, at::Tensor weights, at::Tensor grad_sigmas) {
 
@@ -572,7 +646,8 @@ void composite_weights_backward(at::Tensor grad_weights, at::Tensor sigmas, at::
 
 }
 
-void composite_rays_train_forward(at::Tensor weights, at::Tensor rgbs, at::Tensor rays, const float bound, const uint32_t M, const uint32_t N, at::Tensor weights_sum, at::Tensor image) {
+
+void composite_rays_train_forward(at::Tensor weights, at::Tensor rgbs, at::Tensor rays, const uint32_t M, const uint32_t N, at::Tensor weights_sum, at::Tensor image) {
 
     CHECK_CUDA(weights);
     CHECK_CUDA(rgbs);
@@ -596,12 +671,12 @@ void composite_rays_train_forward(at::Tensor weights, at::Tensor rgbs, at::Tenso
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     weights.scalar_type(), "composite_rays_train_forward", ([&] {
-        kernel_composite_rays_train_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(weights.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), rays.data_ptr<int>(), bound, M, N, weights_sum.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
+        kernel_composite_rays_train_forward<<<div_round_up(N, N_THREAD), N_THREAD>>>(weights.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), rays.data_ptr<int>(), M, N, weights_sum.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
     }));
 }
 
 
-void composite_rays_train_backward(at::Tensor grad_weights_sum, at::Tensor grad, at::Tensor weights, at::Tensor rgbs, at::Tensor rays, at::Tensor weights_sum, at::Tensor image, const float bound, const uint32_t M, const uint32_t N, at::Tensor grad_weights, at::Tensor grad_rgbs) {
+void composite_rays_train_backward(at::Tensor grad_weights_sum, at::Tensor grad, at::Tensor weights, at::Tensor rgbs, at::Tensor rays, at::Tensor weights_sum, at::Tensor image, const uint32_t M, const uint32_t N, at::Tensor grad_weights, at::Tensor grad_rgbs) {
     
     CHECK_CUDA(grad_weights_sum);
     CHECK_CUDA(grad);
@@ -637,7 +712,7 @@ void composite_rays_train_backward(at::Tensor grad_weights_sum, at::Tensor grad,
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     grad.scalar_type(), "composite_rays_train_backward", ([&] {
-        kernel_composite_rays_train_backward<<<div_round_up(N, N_THREAD), N_THREAD>>>(grad_weights_sum.data_ptr<scalar_t>(), grad.data_ptr<scalar_t>(), weights.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), rays.data_ptr<int>(), weights_sum.data_ptr<scalar_t>(), image.data_ptr<scalar_t>(), bound, M, N, grad_weights.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
+        kernel_composite_rays_train_backward<<<div_round_up(N, N_THREAD), N_THREAD>>>(grad_weights_sum.data_ptr<scalar_t>(), grad.data_ptr<scalar_t>(), weights.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), rays.data_ptr<int>(), weights_sum.data_ptr<scalar_t>(), image.data_ptr<scalar_t>(), M, N, grad_weights.data_ptr<scalar_t>(), grad_rgbs.data_ptr<scalar_t>());
     }));
 }
 

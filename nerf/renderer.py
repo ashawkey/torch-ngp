@@ -45,33 +45,6 @@ def sample_pdf(bins, weights, n_samples, det=False):
     return samples
 
 
-@torch.cuda.amp.autocast(enabled=False)
-def near_far_from_bound(rays_o, rays_d, bound, type='cube'):
-    # rays: [B, N, 3], [B, N, 3]
-    # bound: int, radius for ball or half-edge-length for cube
-    # return near [B, N, 1], far [B, N, 1]
-
-    radius = rays_o.norm(dim=-1, keepdim=True)
-
-    if type == 'sphere':
-        near = radius - bound # [B, N, 1]
-        far = radius + bound
-
-    elif type == 'cube':
-        tmin = (-bound - rays_o) / (rays_d + 1e-15) # [B, N, 3]
-        tmax = (bound - rays_o) / (rays_d + 1e-15)
-        near = torch.where(tmin < tmax, tmin, tmax).max(dim=-1, keepdim=True)[0]
-        far = torch.where(tmin > tmax, tmin, tmax).min(dim=-1, keepdim=True)[0]
-        # if far < near, means no intersection, set both near and far to inf (1e9 here)
-        mask = far < near
-        near[mask] = 1e9
-        far[mask] = 1e9
-        # restrict near to a minimal value
-        near = torch.clamp(near, min=0.05)
-
-    return near, far
-
-
 def plot_pointcloud(pc, color=None):
     # pc: [N, 3]
     # color: [N, 3/4]
@@ -140,7 +113,7 @@ class NeRFRenderer(nn.Module):
         device = rays_o.device
 
         # sample steps
-        near, far = near_far_from_bound(rays_o, rays_d, self.bound, type='cube')
+        near, far = raymarching.near_far_from_bound(rays_o, rays_d, self.bound)
 
         #print(f'near = {near.min().item()} ~ {near.max().item()}, far = {far.min().item()} ~ {far.max().item()}')
 
@@ -257,13 +230,18 @@ class NeRFRenderer(nn.Module):
         if bg_color is None:
             bg_color = 1
 
+        # pre-calculate near far
+        nears, fars = raymarching.near_far_from_bound(rays_o, rays_d, self.bound)
+        nears = nears.view(N)
+        fars = fars.view(N)
+
         if self.training:
             # setup counter
             counter = self.step_counter[self.local_step % 16]
             counter.zero_() # set to 0
             self.local_step += 1
 
-            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, self.iter_density, counter, self.mean_count, perturb, 128, False)
+            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, counter, self.mean_count, perturb, 128, False)
             
             density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
             sigmas = density_outputs['sigma']
@@ -276,7 +254,7 @@ class NeRFRenderer(nn.Module):
 
             #print(f'valid RGB query ratio: {mask.sum().item() / mask.shape[0]} (total = {mask.sum().item()})')
 
-            weights_sum, image = raymarching.composite_rays_train(weights, rgbs, rays, self.bound)
+            weights_sum, image = raymarching.composite_rays_train(weights, rgbs, rays)
 
             depth = None # currently training do not requires depth
 
@@ -298,10 +276,6 @@ class NeRFRenderer(nn.Module):
             rays_alive = torch.zeros(2, n_alive, dtype=torch.int32, device=device) # 2 is used to loop old/new
             rays_t = torch.zeros(2, n_alive, dtype=dtype, device=device)
 
-            # pre-calculate near far
-            near, far = near_far_from_bound(rays_o, rays_d, self.bound, type='cube')
-            near = near.view(N)
-            far = far.view(N)
 
             step = 0
             i = 0
@@ -311,7 +285,7 @@ class NeRFRenderer(nn.Module):
                 if step == 0:
                     # init rays at first step.
                     torch.arange(n_alive, out=rays_alive[0])
-                    rays_t[0] = near
+                    rays_t[0] = nears
                 else:
                     alive_counter.zero_()
                     raymarching.compact_rays(n_alive, rays_alive[i % 2], rays_alive[(i + 1) % 2], rays_t[i % 2], rays_t[(i + 1) % 2], alive_counter)
@@ -324,7 +298,7 @@ class NeRFRenderer(nn.Module):
                 # decide compact_steps
                 n_step = max(min(N // n_alive, 8), 1)
 
-                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_grid, self.mean_density, near, far, 128, perturb)
+                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, 128, perturb)
 
                 #sigmas, rgbs = self(xyzs, dirs)
                 density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
@@ -344,7 +318,7 @@ class NeRFRenderer(nn.Module):
         image = image.view(*prefix, 3)
 
         if depth is not None:
-            depth = torch.clamp(depth - near, min=0) / (far - near)
+            depth = torch.clamp(depth - nears, min=0) / (fars - nears)
             depth = depth.view(*prefix)
 
         return depth, image

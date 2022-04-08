@@ -28,35 +28,35 @@ static inline  __device__ at::Half atomicAdd(at::Half *address, at::Half val) {
 
 template <typename T>
 static inline __host__ __device__ T div_round_up(T val, T divisor) {
-	return (val + divisor - 1) / divisor;
+    return (val + divisor - 1) / divisor;
 }
 
 
 template <uint32_t D>
 __device__ uint32_t fast_hash(const uint32_t pos_grid[D]) {
-	static_assert(D <= 7, "fast_hash can only hash up to 7 dimensions.");
+    static_assert(D <= 7, "fast_hash can only hash up to 7 dimensions.");
 
-	// While 1 is technically not a good prime for hashing (or a prime at all), it helps memory coherence
-	// and is sufficient for our use case of obtaining a uniformly colliding index from high-dimensional
-	// coordinates.
+    // While 1 is technically not a good prime for hashing (or a prime at all), it helps memory coherence
+    // and is sufficient for our use case of obtaining a uniformly colliding index from high-dimensional
+    // coordinates.
     constexpr uint32_t primes[7] = { 1, 2654435761, 805459861, 3674653429, 2097192037, 1434869437, 2165219737 };
 
-	uint32_t result = 0;
-	#pragma unroll
-	for (uint32_t i = 0; i < D; ++i) {
-		result ^= pos_grid[i] * primes[i];
-	}
+    uint32_t result = 0;
+    #pragma unroll
+    for (uint32_t i = 0; i < D; ++i) {
+        result ^= pos_grid[i] * primes[i];
+    }
 
-	return result;
+    return result;
 }
 
 
 template <uint32_t D, uint32_t C>
 __device__ uint32_t get_grid_index(const uint32_t ch, const uint32_t hashmap_size, const uint32_t resolution, const uint32_t pos_grid[D]) {
-	uint32_t stride = 1;
-	uint32_t index = 0;
+    uint32_t stride = 1;
+    uint32_t index = 0;
 
-	#pragma unroll
+    #pragma unroll
     for (uint32_t d = 0; d < D && stride <= hashmap_size; d++) {
         index += pos_grid[d] * stride;
         stride *= (resolution + 1);
@@ -66,7 +66,7 @@ __device__ uint32_t get_grid_index(const uint32_t ch, const uint32_t hashmap_siz
         index = fast_hash<D>(pos_grid);
     }
 
-	return (index % hashmap_size) * C + ch;
+    return (index % hashmap_size) * C + ch;
 }
 
 
@@ -230,7 +230,7 @@ __global__ void kernel_grid_backward(
     const uint32_t B, const uint32_t L, const float S, const uint32_t H
 ) {
     const uint32_t b = (blockIdx.x * blockDim.x + threadIdx.x) * N_C / C;
-	if (b >= B) return;
+    if (b >= B) return;
 
     const uint32_t level = blockIdx.y;
     const uint32_t ch = (blockIdx.x * blockDim.x + threadIdx.x) * N_C - b * C;
@@ -340,7 +340,7 @@ __global__ void kernel_input_backward(
 template <typename scalar_t, uint32_t D>
 void kernel_grid_wrapper(const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx) {
     static constexpr uint32_t N_THREAD = 512;
-	const dim3 blocks_hashgrid = { div_round_up(B, N_THREAD), L, 1 };
+    const dim3 blocks_hashgrid = { div_round_up(B, N_THREAD), L, 1 };
     switch (C) {
         case 1: kernel_grid<scalar_t, D, 1><<<blocks_hashgrid, N_THREAD>>>(inputs, embeddings, offsets, outputs, B, L, S, H, calc_grad_inputs, dy_dx); break;
         case 2: kernel_grid<scalar_t, D, 2><<<blocks_hashgrid, N_THREAD>>>(inputs, embeddings, offsets, outputs, B, L, S, H, calc_grad_inputs, dy_dx); break;
@@ -369,8 +369,8 @@ void hash_encode_forward_cuda(const scalar_t *inputs, const scalar_t *embeddings
 template <typename scalar_t, uint32_t D>
 void kernel_grid_backward_wrapper(const scalar_t *grad, const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *grad_embeddings, const uint32_t B, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, scalar_t *grad_inputs) {
     static constexpr uint32_t N_THREAD = 256;
-	const uint32_t N_C = std::min(2u, C); // n_features_per_thread
-	const dim3 blocks_hashgrid = { div_round_up(B * C / N_C, N_THREAD), L, 1 };
+    const uint32_t N_C = std::min(2u, C); // n_features_per_thread
+    const dim3 blocks_hashgrid = { div_round_up(B * C / N_C, N_THREAD), L, 1 };
     switch (C) {
         case 1: 
             kernel_grid_backward<scalar_t, D, 1, 1><<<blocks_hashgrid, N_THREAD>>>(grad, inputs, embeddings, offsets, grad_embeddings, B, L, S, H); 
