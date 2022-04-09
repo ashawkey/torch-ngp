@@ -4,7 +4,7 @@
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // utils
-    m.def("near_far_from_bound", &near_far_from_bound, "near_far_from_bound (CUDA)");
+    m.def("near_far_from_aabb", &near_far_from_aabb, "near_far_from_aabb (CUDA)");
     // train
     m.def("march_rays_train", &march_rays_train, "march_rays_train (CUDA)");
     m.def("composite_weights_forward", &composite_weights_forward, "composite_weights_forward (CUDA)");

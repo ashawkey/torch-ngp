@@ -64,7 +64,7 @@ class OrbitCamera:
 
 class NeRFGUI:
     def __init__(self, opt, trainer, debug=True):
-        self.opt = opt
+        self.opt = opt # shared with the trainer's opt to support in-place modification of rendering parameters.
         self.W = opt.W
         self.H = opt.H
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius, fovy=opt.fovy)
@@ -147,8 +147,6 @@ class NeRFGUI:
 
         dpg.set_primary_window("_primary_window", True)
 
-
-
         with dpg.window(label="Control", tag="_control_window", width=400, height=250):
 
             # button theme
@@ -227,6 +225,7 @@ class NeRFGUI:
             
             # rendering options
             with dpg.collapsing_header(label="Options"):
+
                 # bg_color picker
                 def callback_change_bg(sender, app_data):
                     self.bg_color = torch.tensor(app_data[:3], dtype=torch.float32) # only need RGB in [0, 1]
@@ -240,6 +239,39 @@ class NeRFGUI:
                     self.need_update = True
 
                 dpg.add_slider_int(label="FoV (vertical)", min_value=1, max_value=120, format="%d deg", default_value=self.cam.fovy, callback=callback_set_fovy)
+
+                # dt_gamma slider
+                def callback_set_dt_gamma(sender, app_data):
+                    self.opt.dt_gamma = app_data
+                    self.need_update = True
+
+                dpg.add_slider_float(label="dt_gamma", min_value=0, max_value=0.1, format="%.5f", default_value=self.opt.dt_gamma, callback=callback_set_dt_gamma)
+
+                # aabb slider
+                def callback_set_aabb(sender, app_data, user_data):
+                    # user_data is the dimension for aabb (xmin, ymin, zmin, xmax, ymax, zmax)
+                    self.trainer.model.aabb_infer[user_data] = app_data
+
+                    # also change train aabb ? [better not...]
+                    #self.trainer.model.aabb_train[user_data] = app_data
+
+                    self.need_update = True
+
+                dpg.add_separator()
+                dpg.add_text("Axis-aligned bounding box:")
+
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="x", width=150, min_value=-self.opt.bound, max_value=0, format="%.2f", default_value=-self.opt.bound, callback=callback_set_aabb, user_data=0)
+                    dpg.add_slider_float(label="", width=150, min_value=0, max_value=self.opt.bound, format="%.2f", default_value=self.opt.bound, callback=callback_set_aabb, user_data=3)
+
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="y", width=150, min_value=-self.opt.bound, max_value=0, format="%.2f", default_value=-self.opt.bound, callback=callback_set_aabb, user_data=1)
+                    dpg.add_slider_float(label="", width=150, min_value=0, max_value=self.opt.bound, format="%.2f", default_value=self.opt.bound, callback=callback_set_aabb, user_data=4)
+
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="z", width=150, min_value=-self.opt.bound, max_value=0, format="%.2f", default_value=-self.opt.bound, callback=callback_set_aabb, user_data=2)
+                    dpg.add_slider_float(label="", width=150, min_value=0, max_value=self.opt.bound, format="%.2f", default_value=self.opt.bound, callback=callback_set_aabb, user_data=5)
+                
 
             # debug info
             if self.debug:

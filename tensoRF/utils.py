@@ -167,7 +167,7 @@ class PSNRMeter:
 class Trainer(object):
     def __init__(self, 
                  name, # name of this experiment
-                 conf, # extra conf
+                 opt, # extra conf
                  model, # network 
                  criterion=None, # loss function, if None, assume inline implementation in train_step
                  optimizer=None, # optimizer
@@ -191,7 +191,7 @@ class Trainer(object):
                  ):
         
         self.name = name
-        self.conf = conf
+        self.opt = opt
         self.mute = mute
         self.metrics = metrics
         self.local_rank = local_rank
@@ -311,7 +311,7 @@ class Trainer(object):
 
         # sample rays 
         B, H, W, C = images.shape
-        rays_o, rays_d, inds = get_rays(poses, intrinsics, H, W, self.conf['num_rays'])
+        rays_o, rays_d, inds = get_rays(poses, intrinsics, H, W, self.opt.num_rays)
         images = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds], -1)) # [B, N, 3/4]
 
         # train with random background color if using alpha mixing
@@ -324,14 +324,14 @@ class Trainer(object):
         else:
             gt_rgb = images
 
-        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
     
         pred_rgb = outputs['rgb']
 
         loss = self.criterion(pred_rgb, gt_rgb)
 
         # l1 reg
-        loss += self.model.density_loss() * self.conf['l1_reg_weight']
+        loss += self.model.density_loss() * self.opt.l1_reg_weight
 
         return pred_rgb, gt_rgb, loss
 
@@ -351,7 +351,7 @@ class Trainer(object):
         else:
             gt_rgb = images
         
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
@@ -373,7 +373,7 @@ class Trainer(object):
         if bg_color is not None:
             bg_color = bg_color.to(self.device)
 
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
@@ -644,7 +644,7 @@ class Trainer(object):
                     pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                 pbar.update(loader.batch_size)
 
-            if self.global_step in self.conf['upsample_model_steps']:
+            if self.global_step in self.opt.upsample_model_steps:
 
                 reso = self.upsample_resolutions.pop(0)
                 self.log(f"[INFO] upsample model at step {self.global_step} from {self.model.resolution[0]} to {reso}")

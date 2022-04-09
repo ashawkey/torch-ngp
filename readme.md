@@ -53,12 +53,12 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
 # test mode for GUI
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui --test
 
-# for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8`
+# for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8 --dt_gamma 0`
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
 
 # for custom dataset, you should:
 # 1. take a video / many photos from different views 
@@ -66,8 +66,8 @@ python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff 
 # 3. call the preprocess code: (should install ffmpeg and colmap first! refer to the file for more options)
 python colmap2nerf.py --video ./data/custom/video.mp4 --run_colmap # if use video
 python colmap2nerf.py --images ./data/custom/images/ --run_colmap # if use images
-# 4. it should create the transform.json, and you can train with: (--scale and --bound may need trial-and-error to get a better result.)
-python main_nerf.py data/custom --workspace trial_nerf_custom --fp16 --ff --cuda_ray --gui --scale 2 --bound 0.33
+# 4. it should create the transform.json, and you can train with: (you'll need to try with different scale & bound & dt_gamma to make the object correctly located in the bounding box and render fluently.)
+python main_nerf.py data/custom --workspace trial_nerf_custom --fp16 --ff --cuda_ray --gui --scale 2.0 --bound 1.0 --dt_gamma 0.02
 
 
 ### SDF
@@ -81,7 +81,7 @@ python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff --test
 ### TensoRF
 # almost the same as HashNeRF, just replace the main script.
 python main_tensoRF.py data/fox --workspace trial_tensoRF --fp16 --ff --cuda_ray
-python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 
+python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
 
 ```
 
@@ -129,6 +129,7 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Logs
+* 4.9: use 6D AABB instead of a single `bound` for more flexible rendering. More options in GUI to control the AABB and `dt_gamma` for adaptive ray marching.
 * 4.9: implemented multi-res density grid (cascade) and adaptive ray marching. Now the fox renders much faster!
 * 4.6: fixed TensorCP hyper-parameters.
 * 4.3: add `mark_untrained_grid` to prevent training on out-of-camera regions. Add custom dataset instructions.
@@ -138,7 +139,6 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
 * 3.22: reverted from pre-generating rays as it takes too much CPU memory, still the PSNR for Lego can reach ~33 now.
 * 3.14: fixed the precision related issue for `fp16` mode, and it renders much better quality. Added PSNR metric for NeRF.
 * 3.14: linearly scale `desired_resolution` with `bound` according to https://github.com/ashawkey/torch-ngp/issues/23.
-    * known issue: very large bound (e.g., 16) leads to bad performance. Better to scale down the camera to fit into a smaller bounding box.
 * 3.11: raymarching now supports supervising weights_sum (pixel alpha, or mask) directly, and bg_color is separated from CUDA to make it more flexible. Add an option to preload data into GPU.
 * 3.9: add fov for gui.
 * 3.1: add type='all' for blender dataset (load train + val + test data), which is the default behavior of instant-ngp.

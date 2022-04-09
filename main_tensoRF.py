@@ -31,10 +31,11 @@ if __name__ == '__main__':
     parser.add_argument("--upsample_model_steps", type=int, action="append", default=[2000, 3000, 4000, 5500, 7000])
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
-    parser.add_argument('--preload', action='store_true', help="preload all data into GPU, fasten training but use more GPU memory")
+    parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     # (default is for the fox dataset)
-    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
-    parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
+    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
+    parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box[-bound, bound]^3")
+    parser.add_argument('--dt_gamma', type=float, default=1/128, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable.")
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
     parser.add_argument('--W', type=int, default=800, help="GUI width")
@@ -57,7 +58,7 @@ if __name__ == '__main__':
         resolution=[opt.resolution0] * 3,
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1 if opt.mode == 'colmap' else 25,
+        density_scale=1 if opt.mode == 'colmap' else 100,
     )
     
     print(model)
@@ -67,7 +68,7 @@ if __name__ == '__main__':
     ### test mode
     if opt.test:
 
-        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
+        trainer = Trainer('ngp', opt, model, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer)
@@ -89,7 +90,7 @@ if __name__ == '__main__':
         # need different milestones for GUI/CMD mode.
         scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 2000] if opt.gui else [100, 200], gamma=0.33)
 
-        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
+        trainer = Trainer('ngp', opt, model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
 
         # calc upsample target resolutions
         upsample_resolutions = (np.round(np.exp(np.linspace(np.log(opt.resolution0), np.log(opt.resolution1), len(opt.upsample_model_steps) + 1)))).astype(np.int32).tolist()[1:]

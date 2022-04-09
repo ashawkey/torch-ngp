@@ -15,7 +15,7 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
     ### training options
-    parser.add_argument('--batch_size', type=int, default=1) 
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_rays', type=int, default=4096)
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
     # (only valid when not using --cuda_ray)
@@ -28,14 +28,15 @@ if __name__ == '__main__':
     parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
-    parser.add_argument('--preload', action='store_true', help="preload all data into GPU, fasten training but use more GPU memory")
+    parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     # (default is for the fox dataset)
-    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box(-bound, bound)")
-    parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box(-bound, bound)")
+    parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
+    parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box[-bound, bound]^3")
+    parser.add_argument('--dt_gamma', type=float, default=1/128, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
-    parser.add_argument('--W', type=int, default=800, help="GUI width")
-    parser.add_argument('--H', type=int, default=800, help="GUI height")
+    parser.add_argument('--W', type=int, default=1024, help="GUI width")
+    parser.add_argument('--H', type=int, default=1024, help="GUI height")
     parser.add_argument('--radius', type=float, default=5, help="default GUI camera radius from center")
     parser.add_argument('--fovy', type=float, default=90, help="default GUI camera fovy")
     parser.add_argument('--max_spp', type=int, default=64, help="GUI rendering max sample per pixel")
@@ -57,7 +58,7 @@ if __name__ == '__main__':
     model = NeRFNetwork(
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1 if opt.mode == 'colmap' else 100,
+        density_scale=1 if opt.mode == 'colmap' else 100, # TODO: else the lego will blur... check why.
     )
     
     print(model)
@@ -67,7 +68,7 @@ if __name__ == '__main__':
     ### test mode
     if opt.test:
 
-        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
+        trainer = Trainer('ngp', opt, model, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer)
@@ -92,7 +93,7 @@ if __name__ == '__main__':
         # need different milestones for GUI/CMD mode.
         scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [100, 200], gamma=0.33)
 
-        trainer = Trainer('ngp', vars(opt), model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
+        trainer = Trainer('ngp', opt, model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
 
         # need different dataset type for GUI/CMD mode.
 

@@ -69,6 +69,13 @@ class NeRFRenderer(nn.Module):
         self.cascade = 1 + math.ceil(math.log2(bound))
         self.density_scale = density_scale
 
+        # prepare aabb with a 6D tensor (xmin, ymin, zmin, xmax, ymax, zmax)
+        # NOTE: aabb (can be rectangular) is only used to generate points, we still rely on bound (always cubic) to calculate density grid and hashing.
+        aabb_train = torch.FloatTensor([-bound, -bound, -bound, bound, bound, bound])
+        aabb_infer = aabb_train.clone()
+        self.register_buffer('aabb_train', aabb_train)
+        self.register_buffer('aabb_infer', aabb_infer)
+
         # extra state for cuda raymarching
         self.cuda_ray = cuda_ray
         if cuda_ray:
@@ -101,7 +108,7 @@ class NeRFRenderer(nn.Module):
         self.mean_count = 0
         self.local_step = 0
 
-    def run(self, rays_o, rays_d, num_steps, upsample_steps, bg_color, perturb):
+    def run(self, rays_o, rays_d, num_steps=128, upsample_steps=128, bg_color=None, perturb=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # bg_color: [3] in range [0, 1]
         # return: image: [B, N, 3], depth: [B, N]
@@ -113,24 +120,30 @@ class NeRFRenderer(nn.Module):
         N = rays_o.shape[0] # N = B * N, in fact
         device = rays_o.device
 
-        # sample steps
-        near, far = raymarching.near_far_from_bound(rays_o, rays_d, self.bound)
+        # choose aabb
+        aabb = self.aabb_train if self.training else self.aabb_infer
 
-        #print(f'near = {near.min().item()} ~ {near.max().item()}, far = {far.min().item()} ~ {far.max().item()}')
+        # sample steps
+        nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, aabb)
+        nears.unsqueeze_(-1)
+        fars.unsqueeze_(-1)
+
+        #print(f'nears = {nears.min().item()} ~ {nears.max().item()}, fars = {fars.min().item()} ~ {fars.max().item()}')
 
         z_vals = torch.linspace(0.0, 1.0, num_steps, device=device).unsqueeze(0) # [1, T]
         z_vals = z_vals.expand((N, num_steps)) # [N, T]
-        z_vals = near + (far - near) * z_vals # [N, T], in [near, far]
+        z_vals = nears + (fars - nears) * z_vals # [N, T], in [nears, fars]
 
         # perturb z_vals
-        sample_dist = (far - near) / num_steps
+        sample_dist = (fars - nears) / num_steps
         if perturb:
             z_vals = z_vals + (torch.rand(z_vals.shape, device=device) - 0.5) * sample_dist
-            #z_vals = z_vals.clamp(near, far) # avoid out of bounds xyzs.
+            #z_vals = z_vals.clamp(nears, fars) # avoid out of bounds xyzs.
 
         # generate xyzs
         xyzs = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(-1) # [N, 1, 3] * [N, T, 1] -> [N, T, 3]
-        xyzs = xyzs.clamp(-self.bound, self.bound) # must be strictly inside the bounds, else lead to nan in hashgrid encoder!
+        #xyzs = xyzs.clamp(-self.bound, self.bound) # must be strictly inside the bounds, else lead to nan in hashgrid encoder!
+        xyzs = torch.min(torch.max(xyzs, aabb[:3]), aabb[3:]) # a manual clip.
 
         # print('[xyzs]', xyzs.shape, xyzs.dtype, xyzs.min().item(), xyzs.max().item())
 
@@ -159,7 +172,8 @@ class NeRFRenderer(nn.Module):
                 new_z_vals = sample_pdf(z_vals_mid, weights[:, 1:-1], upsample_steps, det=not self.training).detach() # [N, t]
 
                 new_xyzs = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(-1) # [N, 1, 3] * [N, t, 1] -> [N, t, 3]
-                new_xyzs = new_xyzs.clamp(-self.bound, self.bound)
+                #new_xyzs = new_xyzs.clamp(-self.bound, self.bound)
+                new_xyzs = torch.min(torch.max(new_xyzs, aabb[:3]), aabb[3:]) # a manual clip.
 
             # only forward new points to save computation
             new_density_outputs = self.density(new_xyzs.reshape(-1, 3))
@@ -199,7 +213,7 @@ class NeRFRenderer(nn.Module):
         weights_sum = weights.sum(dim=-1) # [N]
         
         # calculate depth 
-        ori_z_vals = ((z_vals - near) / (far - near)).clamp(0, 1)
+        ori_z_vals = ((z_vals - nears) / (fars - nears)).clamp(0, 1)
         depth = torch.sum(weights * ori_z_vals, dim=-1)
 
         # calculate color
@@ -217,7 +231,7 @@ class NeRFRenderer(nn.Module):
         return depth, image
 
 
-    def run_cuda(self, rays_o, rays_d, num_steps, upsample_steps, bg_color, perturb):
+    def run_cuda(self, rays_o, rays_d, dt_gamma=0, bg_color=None, perturb=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: image: [B, N, 3], depth: [B, N]
 
@@ -232,9 +246,7 @@ class NeRFRenderer(nn.Module):
             bg_color = 1
 
         # pre-calculate near far
-        nears, fars = raymarching.near_far_from_bound(rays_o, rays_d, self.bound)
-        nears = nears.view(N)
-        fars = fars.view(N)
+        nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train if self.training else self.aabb_infer)
 
         if self.training:
             # setup counter
@@ -242,7 +254,7 @@ class NeRFRenderer(nn.Module):
             counter.zero_() # set to 0
             self.local_step += 1
 
-            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, counter, self.mean_count, perturb, 128, False)
+            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, counter, self.mean_count, perturb, 128, False, dt_gamma)
             
             density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
             sigmas = density_outputs['sigma']
@@ -299,7 +311,7 @@ class NeRFRenderer(nn.Module):
                 # decide compact_steps
                 n_step = max(min(N // n_alive, 8), 1)
 
-                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, 128, perturb)
+                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, 128, perturb, dt_gamma)
 
                 #sigmas, rgbs = self(xyzs, dirs)
                 density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
@@ -400,8 +412,6 @@ class NeRFRenderer(nn.Module):
         
         ### update density grid
         resolution = self.density_grid.shape[1]
-
-        half_grid_size = self.bound / resolution
         
         X = torch.linspace(-1, 1, resolution).split(S)
         Y = torch.linspace(-1, 1, resolution).split(S)
@@ -451,7 +461,7 @@ class NeRFRenderer(nn.Module):
         #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
 
 
-    def render(self, rays_o, rays_d, num_steps=128, upsample_steps=128, staged=False, max_ray_batch=4096, bg_color=None, perturb=False, **kwargs):
+    def render(self, rays_o, rays_d, staged=False, max_ray_batch=4096, bg_color=None, perturb=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # return: pred_rgb: [B, N, 3]
 
@@ -472,12 +482,12 @@ class NeRFRenderer(nn.Module):
                 head = 0
                 while head < N:
                     tail = min(head + max_ray_batch, N)
-                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], num_steps, upsample_steps, bg_color, perturb)
+                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], bg_color=bg_color, perturb=perturb, **kwargs)
                     depth[b:b+1, head:tail] = depth_
                     image[b:b+1, head:tail] = image_
                     head += max_ray_batch
         else:
-            depth, image = _run(rays_o, rays_d, num_steps, upsample_steps, bg_color, perturb)
+            depth, image = _run(rays_o, rays_d, bg_color=bg_color, perturb=perturb, **kwargs)
 
         results = {}
         results['depth'] = depth

@@ -168,7 +168,7 @@ class PSNRMeter:
 class Trainer(object):
     def __init__(self, 
                  name, # name of this experiment
-                 conf, # extra conf
+                 opt, # extra conf
                  model, # network 
                  criterion=None, # loss function, if None, assume inline implementation in train_step
                  optimizer=None, # optimizer
@@ -192,7 +192,7 @@ class Trainer(object):
                  ):
         
         self.name = name
-        self.conf = conf
+        self.opt = opt
         self.mute = mute
         self.metrics = metrics
         self.local_rank = local_rank
@@ -308,7 +308,7 @@ class Trainer(object):
 
         # sample rays 
         B, H, W, C = images.shape
-        rays_o, rays_d, inds = get_rays(poses, intrinsics, H, W, self.conf['num_rays'])
+        rays_o, rays_d, inds = get_rays(poses, intrinsics, H, W, self.opt.num_rays)
         images = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds], -1)) # [B, N, 3/4]
 
         # train with random background color if using alpha mixing
@@ -321,7 +321,7 @@ class Trainer(object):
         else:
             gt_rgb = images
 
-        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
     
         pred_rgb = outputs['rgb']
 
@@ -345,7 +345,7 @@ class Trainer(object):
         else:
             gt_rgb = images
         
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
@@ -367,7 +367,7 @@ class Trainer(object):
         if bg_color is not None:
             bg_color = bg_color.to(self.device)
 
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **self.conf)
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
 
         pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
         pred_depth = outputs['depth'].reshape(B, H, W)
