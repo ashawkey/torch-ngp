@@ -95,11 +95,11 @@ def get_rays(c2w, intrinsics, H, W, N_rays=-1):
     return rays_o, rays_d, select_inds
 
 
-def extract_fields(bound_min, bound_max, resolution, query_func):
-    N = 64
-    X = torch.linspace(bound_min[0], bound_max[0], resolution).split(N)
-    Y = torch.linspace(bound_min[1], bound_max[1], resolution).split(N)
-    Z = torch.linspace(bound_min[2], bound_max[2], resolution).split(N)
+def extract_fields(bound_min, bound_max, resolution, query_func, S=128):
+
+    X = torch.linspace(bound_min[0], bound_max[0], resolution).split(S)
+    Y = torch.linspace(bound_min[1], bound_max[1], resolution).split(S)
+    Z = torch.linspace(bound_min[2], bound_max[2], resolution).split(S)
 
     u = np.zeros([resolution, resolution, resolution], dtype=np.float32)
     with torch.no_grad():
@@ -107,9 +107,9 @@ def extract_fields(bound_min, bound_max, resolution, query_func):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
                     xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                    pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0) # [1, N, 3]
-                    val = query_func(pts).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy() # [1, N, 1] --> [x, y, z]
-                    u[xi * N: xi * N + len(xs), yi * N: yi * N + len(ys), zi * N: zi * N + len(zs)] = val
+                    pts = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [S, 3]
+                    val = query_func(pts).reshape(len(xs), len(ys), len(zs)).detach().cpu().numpy() # [S, 1] --> [x, y, z]
+                    u[xi * S: xi * S + len(xs), yi * S: yi * S + len(ys), zi * S: zi * S + len(zs)] = val
     return u
 
 
@@ -387,13 +387,10 @@ class Trainer(object):
         def query_func(pts):
             with torch.no_grad():
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    sdfs = self.model.density(pts.to(self.device))
-            return sdfs
+                    sigma = self.model.density(pts.to(self.device))['sigma']
+            return sigma
 
-        bounds_min = torch.FloatTensor([-self.model.bound] * 3)
-        bounds_max = torch.FloatTensor([self.model.bound] * 3)
-
-        vertices, triangles = extract_geometry(bounds_min, bounds_max, resolution=resolution, threshold=threshold, query_func=query_func)
+        vertices, triangles = extract_geometry(self.model.aabb_infer[:3], self.model.aabb_infer[3:], resolution=resolution, threshold=threshold, query_func=query_func)
 
         mesh = trimesh.Trimesh(vertices, triangles, process=False) # important, process=True leads to seg fault...
         mesh.export(save_path)

@@ -82,6 +82,8 @@ if __name__ == '__main__':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
+            
+            trainer.save_mesh(resolution=256, threshold=0.1)
     
     else:
 
@@ -121,3 +123,5 @@ if __name__ == '__main__':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
+            
+            trainer.save_mesh(resolution=256, threshold=0.1)

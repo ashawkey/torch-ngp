@@ -208,20 +208,31 @@ class NeRFGUI:
 
                         def callback_save(sender, app_data):
                             self.trainer.save_checkpoint(full=True, best=False)
-                            self.trainer.epoch += 1 # use epoch to indicate different calls.
                             dpg.set_value("_log_ckpt", "saved " + os.path.basename(self.trainer.stats["checkpoints"][-1]))
+                            self.trainer.epoch += 1 # use epoch to indicate different calls.
 
                         dpg.add_button(label="save", tag="_button_save", callback=callback_save)
                         dpg.bind_item_theme("_button_save", theme_button)
 
                         dpg.add_text("", tag="_log_ckpt")
 
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Marching Cubes: ")
+
+                        def callback_mesh(sender, app_data):
+                            self.trainer.save_mesh(resolution=256, threshold=0.1)
+                            dpg.set_value("_log_mesh", "saved " + f'{self.trainer.name}_{self.trainer.epoch}.ply')
+                            self.trainer.epoch += 1 # use epoch to indicate different calls.
+
+                        dpg.add_button(label="mesh", tag="_button_mesh", callback=callback_mesh)
+                        dpg.bind_item_theme("_button_mesh", theme_button)
+
+                        dpg.add_text("", tag="_log_mesh")
 
                     with dpg.group(horizontal=True):
                         dpg.add_text("Log: ")
                         dpg.add_text("", tag="_log_train_log")
 
-            
             
             # rendering options
             with dpg.collapsing_header(label="Options"):
