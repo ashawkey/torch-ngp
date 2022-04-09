@@ -49,6 +49,7 @@ def sample_pdf(bins, weights, n_samples, det=False):
 def plot_pointcloud(pc, color=None):
     # pc: [N, 3]
     # color: [N, 3/4]
+    print('[visualize points]', pc.shape, pc.dtype, pc.min(0), pc.max(0))
     pc = trimesh.PointCloud(pc, color)
     # axis
     axes = trimesh.creation.axis(axis_length=4)
@@ -142,10 +143,7 @@ class NeRFRenderer(nn.Module):
 
         # generate xyzs
         xyzs = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * z_vals.unsqueeze(-1) # [N, 1, 3] * [N, T, 1] -> [N, T, 3]
-        #xyzs = xyzs.clamp(-self.bound, self.bound) # must be strictly inside the bounds, else lead to nan in hashgrid encoder!
         xyzs = torch.min(torch.max(xyzs, aabb[:3]), aabb[3:]) # a manual clip.
-
-        # print('[xyzs]', xyzs.shape, xyzs.dtype, xyzs.min().item(), xyzs.max().item())
 
         #plot_pointcloud(xyzs.reshape(-1, 3).detach().cpu().numpy())
 
@@ -172,7 +170,6 @@ class NeRFRenderer(nn.Module):
                 new_z_vals = sample_pdf(z_vals_mid, weights[:, 1:-1], upsample_steps, det=not self.training).detach() # [N, t]
 
                 new_xyzs = rays_o.unsqueeze(-2) + rays_d.unsqueeze(-2) * new_z_vals.unsqueeze(-1) # [N, 1, 3] * [N, t, 1] -> [N, t, 3]
-                #new_xyzs = new_xyzs.clamp(-self.bound, self.bound)
                 new_xyzs = torch.min(torch.max(new_xyzs, aabb[:3]), aabb[3:]) # a manual clip.
 
             # only forward new points to save computation
@@ -255,6 +252,8 @@ class NeRFRenderer(nn.Module):
             self.local_step += 1
 
             xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, counter, self.mean_count, perturb, 128, False, dt_gamma)
+
+            #plot_pointcloud(xyzs.reshape(-1, 3).detach().cpu().numpy())
             
             density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
             sigmas = density_outputs['sigma']

@@ -1,16 +1,14 @@
 import os
-import glob
-import numpy as np
-
 import cv2
+import glob
+import json
+import numpy as np
+from scipy.spatial.transform import Slerp, Rotation
+
+import trimesh
 
 import torch
 from torch.utils.data import Dataset
-
-from scipy.spatial.transform import Slerp, Rotation
-
-# NeRF dataset
-import json
 
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
@@ -23,6 +21,28 @@ def nerf_matrix_to_ngp(pose, scale=0.33):
         [0, 0, 0, 1],
     ], dtype=np.float32)
     return new_pose
+
+
+def visualize_poses(poses, size=0.1):
+    # poses: [B, 4, 4]
+
+    axes = trimesh.creation.axis(axis_length=4)
+    sphere = trimesh.creation.icosphere(radius=1)
+    objects = [axes, sphere]
+
+    for pose in poses:
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a]])
+        segs = trimesh.load_path(segs)
+        objects.append(segs)
+
+    trimesh.Scene(objects).show()
 
 
 class NeRFDataset(Dataset):
@@ -138,13 +158,15 @@ class NeRFDataset(Dataset):
         if self.images is not None:
             self.images = np.stack(self.images, axis=0)
 
+        #visualize_poses(self.poses)
+
         if preload:
             self.poses = torch.from_numpy(self.poses).cuda()
             if self.images is not None:
                 self.images = torch.from_numpy(self.images).cuda()
 
         # load intrinsics
-        
+
         if 'fl_x' in transform or 'fl_y' in transform:
             fl_x = (transform['fl_x'] if 'fl_x' in transform else transform['fl_y']) / downscale
             fl_y = (transform['fl_y'] if 'fl_y' in transform else transform['fl_x']) / downscale
