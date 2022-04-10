@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from encoding import get_encoder
+from activation import trunc_exp
 from ffmlp import FFMLP
 
 from .renderer import NeRFRenderer
-
 
 class NeRFNetwork(NeRFRenderer):
     def __init__(self,
@@ -56,7 +56,8 @@ class NeRFNetwork(NeRFRenderer):
         x = self.encoder(x, bound=self.bound)
         h = self.sigma_net(x)
 
-        sigma = F.relu(h[..., 0])
+        #sigma = F.relu(h[..., 0])
+        sigma = trunc_exp(h[..., 0])
         geo_feat = h[..., 1:]
 
         # color        
@@ -78,7 +79,8 @@ class NeRFNetwork(NeRFRenderer):
         x = self.encoder(x, bound=self.bound)
         h = self.sigma_net(x)
 
-        sigma = F.relu(h[..., 0])
+        #sigma = F.relu(h[..., 0])
+        sigma = trunc_exp(h[..., 0])
         geo_feat = h[..., 1:]
 
         return {

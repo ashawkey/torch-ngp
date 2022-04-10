@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from encoding import get_encoder
+from activation import trunc_exp
 from .renderer import NeRFRenderer
 
 
@@ -78,7 +79,8 @@ class NeRFNetwork(NeRFRenderer):
             if l != self.num_layers - 1:
                 h = F.relu(h, inplace=True)
 
-        sigma = F.relu(h[..., 0])
+        #sigma = F.relu(h[..., 0])
+        sigma = trunc_exp(h[..., 0])
         geo_feat = h[..., 1:]
 
         # color
@@ -105,7 +107,8 @@ class NeRFNetwork(NeRFRenderer):
             if l != self.num_layers - 1:
                 h = F.relu(h, inplace=True)
 
-        sigma = F.relu(h[..., 0])
+        #sigma = F.relu(h[..., 0])
+        sigma = trunc_exp(h[..., 0])
         geo_feat = h[..., 1:]
 
         return {

@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 
 import tinycudann as tcnn
+from activation import trunc_exp
 from .renderer import NeRFRenderer
 
 
@@ -90,7 +91,8 @@ class NeRFNetwork(NeRFRenderer):
         x = self.encoder(x)
         h = self.sigma_net(x)
 
-        sigma = F.relu(h[..., 0])
+        #sigma = F.relu(h[..., 0])
+        sigma = trunc_exp(h[..., 0])
         geo_feat = h[..., 1:]
 
         # color
@@ -113,8 +115,8 @@ class NeRFNetwork(NeRFRenderer):
         x = self.encoder(x)
         h = self.sigma_net(x)
 
-        #sigma = torch.exp(torch.clamp(h[..., 0], -15, 15))
-        sigma = F.relu(h[..., 0])
+        #sigma = F.relu(h[..., 0])
+        sigma = trunc_exp(h[..., 0])
         geo_feat = h[..., 1:]
 
         return {

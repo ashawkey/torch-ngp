@@ -35,6 +35,7 @@ def custom_meshgrid(*args):
     else:
         return torch.meshgrid(*args, indexing='ij')
 
+
 def seed_everything(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -408,6 +409,9 @@ class Trainer(object):
     def train(self, train_loader, valid_loader, max_epochs):
         if self.use_tensorboardX and self.local_rank == 0:
             self.writer = tensorboardX.SummaryWriter(os.path.join(self.workspace, "run", self.name))
+
+        if self.model.cuda_ray:
+            self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
         
         for epoch in range(self.epoch, max_epochs + 1):
             self.epoch = epoch
@@ -471,11 +475,6 @@ class Trainer(object):
 
         self.model.train()
 
-        # update grid
-        if self.model.cuda_ray:
-            with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state()
-
         total_loss = torch.tensor([0], dtype=torch.float32, device=self.device)
         
         loader = iter(train_loader)
@@ -488,6 +487,15 @@ class Trainer(object):
             except StopIteration:
                 loader = iter(train_loader)
                 data = next(loader)
+
+            # mark untrained grid
+            if self.global_step == 0:
+                self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
+
+            # update grid every 16 steps
+            if self.model.cuda_ray and self.global_step % 16 == 0:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
             
             self.global_step += 1
             
@@ -527,13 +535,18 @@ class Trainer(object):
 
     
     # [GUI] test on a single image
-    def test_gui(self, pose, intrinsics, W, H, bg_color=None, spp=1):
+    def test_gui(self, pose, intrinsics, W, H, bg_color=None, spp=1, downscale=1):
+        
+        # render resolution (may need downscale to for better frame rate)
+        rH = int(H * downscale)
+        rW = int(W * downscale)
+        intrinsics = intrinsics * downscale
 
         data = {
             'pose': pose[None, :],
             'intrinsic': intrinsics[None, :],
-            'H': [str(H)],
-            'W': [str(W)],
+            'H': [str(rH)],
+            'W': [str(rW)],
         }
 
         data = self.prepare_data(data)
@@ -551,6 +564,12 @@ class Trainer(object):
 
         if self.ema is not None:
             self.ema.restore()
+
+        # interpolation to the original resolution
+        if downscale != 1:
+            # TODO: have to permute twice with torch...
+            preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='bilinear', align_corners=True).permute(0, 2, 3, 1).contiguous()
+            preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='bilinear', align_corners=True).squeeze(1)
 
         outputs = {
             'image': preds[0].detach().cpu().numpy(),

@@ -58,7 +58,7 @@ if __name__ == '__main__':
     model = NeRFNetwork(
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1 if opt.mode == 'colmap' else 100, # TODO: else the lego will blur... check why.
+        density_scale=1,
     )
     
     print(model)
@@ -83,7 +83,7 @@ if __name__ == '__main__':
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
             
-            trainer.save_mesh(resolution=256, threshold=0.1)
+            trainer.save_mesh(resolution=256, threshold=10)
     
     else:
 
@@ -124,4 +124,4 @@ if __name__ == '__main__':
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
             
-            trainer.save_mesh(resolution=256, threshold=0.1)
+            trainer.save_mesh(resolution=256, threshold=10)

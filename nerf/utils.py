@@ -26,11 +26,11 @@ import mcubes
 from rich.console import Console
 from torch_ema import ExponentialMovingAverage
 
-from packaging import version
+import packaging
 
 def custom_meshgrid(*args):
     # ref: https://pytorch.org/docs/stable/generated/torch.meshgrid.html?highlight=meshgrid#torch.meshgrid
-    if version.parse(torch.__version__) < version.parse('1.10'):
+    if packaging.version.parse(torch.__version__) < packaging.version.parse('1.10'):
         return torch.meshgrid(*args)
     else:
         return torch.meshgrid(*args, indexing='ij')
