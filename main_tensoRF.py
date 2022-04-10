@@ -38,8 +38,8 @@ if __name__ == '__main__':
     parser.add_argument('--dt_gamma', type=float, default=1/128, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable.")
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
-    parser.add_argument('--W', type=int, default=1024, help="GUI width")
-    parser.add_argument('--H', type=int, default=1024, help="GUI height")
+    parser.add_argument('--W', type=int, default=1920, help="GUI width")
+    parser.add_argument('--H', type=int, default=1080, help="GUI height")
     parser.add_argument('--radius', type=float, default=5, help="default GUI camera radius from center")
     parser.add_argument('--fovy', type=float, default=50, help="default GUI camera fovy")
     parser.add_argument('--max_spp', type=int, default=64, help="GUI rendering max sample per pixel")

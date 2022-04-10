@@ -111,7 +111,8 @@ class NeRFGUI:
 
         # dynamic train steps
         # max allowed train time per-frame is 500 ms
-        self.train_steps = min(16, max(4, int(16 * 500 / t)))
+        full_t = t / self.train_steps * 16
+        self.train_steps = min(16, max(4, int(16 * 500 / full_t)))
 
     
     def test_step(self):
@@ -130,8 +131,9 @@ class NeRFGUI:
 
             # update dynamic resolution
             if self.dynamic_resolution:
-                # max allowed infer time per-frame is 100 ms
-                ds = min(1, max(1/8, math.sqrt(100 / t)))
+                # max allowed infer time per-frame is 200 ms
+                full_t = t / (self.downscale ** 2)
+                ds = min(1, max(1/4, math.sqrt(200 / full_t)))
                 if ds > self.downscale * 1.2 or ds < self.downscale * 0.8:
                     self.downscale = ds
 
