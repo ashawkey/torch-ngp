@@ -19,7 +19,11 @@ pip install -r requirements.txt
 # (optional) install the tcnn backbone
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ```
-Tested on Ubuntu with torch 1.10 & CUDA 11.3 on TITAN RTX.
+
+Tested on: 
+* Ubuntu 20 with torch 1.10 & CUDA 11.3 on a TITAN RTX.
+* Ubuntu 16 with torch 1.8 & CUDA 10.1 on a V100.
+* Windows 10 with torch 1.11 & CUDA 11.3 on a RTX 3070.
 
 Currently, `--ff` only supports GPUs with CUDA architecture `>= 70`.
 For GPUs with lower architecture, `--tcnn` can still be used, but the speed will be slower compared to more recent GPUs.
@@ -99,8 +103,8 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implement the linear interpolation mode.
-* For the voxel pruning in ray marching kernels, this repo doesn't implement the multi-scale density grid (check the `mip` keyword), and only use one `128x128x128` grid for simplicity. Instead of updating the grid every 16 steps, we update it every epoch, which may lead to slower first few epochs if using `--cuda_ray`.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
+* For TensoRF, we don't implement AABB shrinking and regularizations other than L1.
 
 
 # Progress
