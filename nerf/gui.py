@@ -144,7 +144,7 @@ class NeRFGUI:
                 self.spp += 1
 
             dpg.set_value("_log_infer_time", f'{t:.4f}ms')
-            dpg.set_value("_log_resolution", f'{int(self.downscale * self.W)}x{int(self.downscale * self.W)}')
+            dpg.set_value("_log_resolution", f'{int(self.downscale * self.W)}x{int(self.downscale * self.H)}')
             dpg.set_value("_log_spp", self.spp)
             dpg.set_value("_texture", self.render_buffer)
 
@@ -191,6 +191,8 @@ class NeRFGUI:
             # train button
             if not self.opt.test:
                 with dpg.collapsing_header(label="Train", default_open=True):
+
+                    # train / stop
                     with dpg.group(horizontal=True):
                         dpg.add_text("Train: ")
 
@@ -218,7 +220,7 @@ class NeRFGUI:
                         dpg.add_button(label="reset", tag="_button_reset", callback=callback_reset)
                         dpg.bind_item_theme("_button_reset", theme_button)
 
-
+                    # save ckpt
                     with dpg.group(horizontal=True):
                         dpg.add_text("Checkpoint: ")
 
@@ -231,12 +233,13 @@ class NeRFGUI:
                         dpg.bind_item_theme("_button_save", theme_button)
 
                         dpg.add_text("", tag="_log_ckpt")
-
+                    
+                    # save mesh
                     with dpg.group(horizontal=True):
                         dpg.add_text("Marching Cubes: ")
 
                         def callback_mesh(sender, app_data):
-                            self.trainer.save_mesh(resolution=256, threshold=0.1)
+                            self.trainer.save_mesh(resolution=256, threshold=10)
                             dpg.set_value("_log_mesh", "saved " + f'{self.trainer.name}_{self.trainer.epoch}.ply')
                             self.trainer.epoch += 1 # use epoch to indicate different calls.
 

@@ -46,7 +46,7 @@ def visualize_poses(poses, size=0.1):
 
 
 class NeRFDataset(Dataset):
-    def __init__(self, path, type='train', mode='colmap', preload=False, downscale=1, scale=0.33, n_test=10):
+    def __init__(self, path, type='train', mode='colmap', preload=False, downscale=1, scale=0.33, n_test=10, fp16=False):
         super().__init__()
         # path: the json file path.
 
@@ -55,6 +55,7 @@ class NeRFDataset(Dataset):
         self.mode = mode # colmap, blender, llff
         self.downscale = downscale
         self.preload = preload # preload data into GPU
+        self.fp16 = fp16
 
         # camera radius scale to make sure camera are inside the bounding box.
         self.scale = scale
@@ -163,7 +164,7 @@ class NeRFDataset(Dataset):
         if preload:
             self.poses = torch.from_numpy(self.poses).cuda()
             if self.images is not None:
-                self.images = torch.from_numpy(self.images).half().cuda() # use float16 for image is enough.
+                self.images = torch.from_numpy(self.images).to(torch.half if self.fp16 else torch.float).cuda()
 
         # load intrinsics
 

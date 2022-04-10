@@ -46,6 +46,15 @@ def seed_everything(seed):
     #torch.backends.cudnn.benchmark = True
 
 
+@torch.jit.script
+def linear_to_srgb(x):
+    return torch.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
+
+@torch.jit.script
+def srgb_to_linear(x):
+    return torch.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
+
 def lift(x, y, z, intrinsics):
     # x, y, z: [B, N]
     # intrinsics: [B, 3, 3]
@@ -316,6 +325,7 @@ class Trainer(object):
         #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
         bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
 
+        # train in srgb color space
         if C == 4:
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
