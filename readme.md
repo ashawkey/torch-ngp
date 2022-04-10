@@ -129,6 +129,7 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Logs
+* 4.10: add Windows support.
 * 4.9: use 6D AABB instead of a single `bound` for more flexible rendering. More options in GUI to control the AABB and `dt_gamma` for adaptive ray marching.
 * 4.9: implemented multi-res density grid (cascade) and adaptive ray marching. Now the fox renders much faster!
 * 4.6: fixed TensorCP hyper-parameters.
