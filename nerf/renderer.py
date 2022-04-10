@@ -403,7 +403,7 @@ class NeRFRenderer(nn.Module):
         #print(f'[mark untrained grid] {(count == 0).sum()} from {resolution ** 3 * self.cascade}')
 
     @torch.no_grad()
-    def update_extra_state(self, decay=0.9, S=128):
+    def update_extra_state(self, decay=0.95, S=128):
         # call before each epoch to update extra states.
 
         if not self.cuda_ray:
@@ -412,14 +412,13 @@ class NeRFRenderer(nn.Module):
         ### update density grid
         resolution = self.density_grid.shape[1]
         
-        X = torch.linspace(-1, 1, resolution).split(S)
-        Y = torch.linspace(-1, 1, resolution).split(S)
-        Z = torch.linspace(-1, 1, resolution).split(S)
-
         tmp_grid = torch.zeros_like(self.density_grid)
 
         # TODO: random sample coordinates after a warm up, instead of always uniformly query all cascades!
 
+        X = torch.linspace(-1, 1, resolution).split(S)
+        Y = torch.linspace(-1, 1, resolution).split(S)
+        Z = torch.linspace(-1, 1, resolution).split(S)
         for xi, xs in enumerate(X):
             for yi, ys in enumerate(Y):
                 for zi, zs in enumerate(Z):
@@ -444,6 +443,7 @@ class NeRFRenderer(nn.Module):
                         tmp_grid[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas
         
         # TODO: check `bitfield_max_pool`, should apply max pool across consequent cascades!
+        # TODO: cast to bit mask to accelerate.
         
         # ema update
         valid_mask = self.density_grid >= 0

@@ -163,7 +163,7 @@ class NeRFDataset(Dataset):
         if preload:
             self.poses = torch.from_numpy(self.poses).cuda()
             if self.images is not None:
-                self.images = torch.from_numpy(self.images).cuda()
+                self.images = torch.from_numpy(self.images).half().cuda() # use float16 for image is enough.
 
         # load intrinsics
 

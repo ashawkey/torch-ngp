@@ -1,3 +1,4 @@
+import math
 import torch
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -78,6 +79,10 @@ class NeRFGUI:
         self.need_update = True # camera moved, should reset accumulation
         self.spp = 1 # sample per pixel
 
+        self.dynamic_resolution = True
+        self.downscale = 1
+        self.train_steps = 16
+
         dpg.create_context()
         self.register_dpg()
         self.test_step()
@@ -92,33 +97,43 @@ class NeRFGUI:
         starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
         starter.record()
 
-        outputs = self.trainer.train_gui(self.trainer.train_loader)
+        outputs = self.trainer.train_gui(self.trainer.train_loader, step=self.train_steps)
 
         ender.record()
         torch.cuda.synchronize()
         t = starter.elapsed_time(ender)
 
-        self.step += 1
+        self.step += self.train_steps
         self.need_update = True
 
         dpg.set_value("_log_train_time", f'{t:.4f}ms')
-        dpg.set_value("_log_train_log", f'step = {self.step: 5d}, loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.6f}')
+        dpg.set_value("_log_train_log", f'step = {self.step: 5d} (+{self.train_steps: 2d}), loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.5f}')
+
+        # dynamic train steps
+        # max allowed train time per-frame is 500 ms
+        self.train_steps = min(16, max(4, int(16 * 500 / t)))
 
     
     def test_step(self):
         # TODO: seems we have to move data from GPU --> CPU --> GPU?
-        # TODO: dynamic rendering resolution to keep it fluent.
 
         if self.need_update or self.spp < self.opt.max_spp:
         
             starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
             starter.record()
 
-            outputs = self.trainer.test_gui(self.cam.pose, self.cam.intrinsics, self.W, self.H, self.bg_color, self.spp)
+            outputs = self.trainer.test_gui(self.cam.pose, self.cam.intrinsics, self.W, self.H, self.bg_color, self.spp, self.downscale)
 
             ender.record()
             torch.cuda.synchronize()
             t = starter.elapsed_time(ender)
+
+            # update dynamic resolution
+            if self.dynamic_resolution:
+                # max allowed infer time per-frame is 100 ms
+                ds = min(1, max(1/8, math.sqrt(100 / t)))
+                if ds > self.downscale * 1.2 or ds < self.downscale * 0.8:
+                    self.downscale = ds
 
             if self.need_update:
                 self.render_buffer = outputs['image']
@@ -129,6 +144,7 @@ class NeRFGUI:
                 self.spp += 1
 
             dpg.set_value("_log_infer_time", f'{t:.4f}ms')
+            dpg.set_value("_log_resolution", f'{int(self.downscale * self.W)}x{int(self.downscale * self.W)}')
             dpg.set_value("_log_spp", self.spp)
             dpg.set_value("_texture", self.render_buffer)
 
@@ -147,7 +163,7 @@ class NeRFGUI:
 
         dpg.set_primary_window("_primary_window", True)
 
-        with dpg.window(label="Control", tag="_control_window", width=400, height=250):
+        with dpg.window(label="Control", tag="_control_window", width=400, height=300):
 
             # button theme
             with dpg.theme() as theme_button:
@@ -230,12 +246,25 @@ class NeRFGUI:
                         dpg.add_text("", tag="_log_mesh")
 
                     with dpg.group(horizontal=True):
-                        dpg.add_text("Log: ")
                         dpg.add_text("", tag="_log_train_log")
 
             
             # rendering options
-            with dpg.collapsing_header(label="Options"):
+            with dpg.collapsing_header(label="Options", default_open=True):
+
+                # dynamic rendering resolution
+                with dpg.group(horizontal=True):
+
+                    def callback_set_dynamic_resolution(sender, app_data):
+                        if self.dynamic_resolution:
+                            self.dynamic_resolution = False
+                            self.downscale = 1
+                        else:
+                            self.dynamic_resolution = True
+                        self.need_update = True
+
+                    dpg.add_checkbox(label="dynamic resolution", default_value=self.dynamic_resolution, callback=callback_set_dynamic_resolution)
+                    dpg.add_text(f"{self.W}x{self.H}", tag="_log_resolution")
 
                 # bg_color picker
                 def callback_change_bg(sender, app_data):

@@ -15,7 +15,7 @@ from .backend import _backend
 class _near_far_from_aabb(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)
-    def forward(ctx, rays_o, rays_d, aabb, min_near=0.05):
+    def forward(ctx, rays_o, rays_d, aabb, min_near=0.2):
         ''' near_far_from_aabb, CUDA implementation
         Calculate rays' intersection time (near and far) with aabb
         Args:
