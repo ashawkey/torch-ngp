@@ -70,6 +70,7 @@ python main_nerf.py data/fox --workspace trial_nerf -O --gui --test
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
+# --dt_gamma controls the adaptive ray marching speed, set to 0 turns it off.
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
 
@@ -109,7 +110,7 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
-* For the hashgrid encoder, this repo only implement the linear interpolation mode.
+* For the hashgrid encoder, this repo only implements the linear interpolation mode.
 * For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 * For TensoRF, we don't implement AABB shrinking and regularizations other than L1.
 

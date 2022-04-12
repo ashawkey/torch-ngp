@@ -100,7 +100,7 @@ if __name__ == '__main__':
         ], betas=(0.9, 0.99), eps=1e-15)
 
         # need different milestones for GUI/CMD mode.
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [200, 400], gamma=0.33)
+        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [100, 200], gamma=0.33)
 
         trainer = Trainer('ngp', opt, model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
 
