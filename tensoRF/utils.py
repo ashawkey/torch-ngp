@@ -541,7 +541,7 @@ class Trainer(object):
 
             # mark untrained grid
             if self.global_step == 0:
-                self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
+                self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
                 self.error_map = train_loader._data.error_map
 
             # update grid every 16 steps
@@ -594,11 +594,11 @@ class Trainer(object):
 
         pose = torch.from_numpy(pose).unsqueeze(0).to(self.device)
 
-        rays_o, rays_d, inds = get_rays(pose, self.intrinsics, rH, rW, -1)
+        rays = get_rays(pose, intrinsics, rH, rW, -1)
 
         data = {
-            'rays_o': rays_o,
-            'rays_d': rays_d,
+            'rays_o': rays['rays_o'],
+            'rays_d': rays['rays_d'],
             'H': rH,
             'W': rW,
         }
