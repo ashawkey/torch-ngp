@@ -8,7 +8,9 @@ from scipy.spatial.transform import Slerp, Rotation
 import trimesh
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+
+from .utils import get_rays
 
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
@@ -45,29 +47,30 @@ def visualize_poses(poses, size=0.1):
     trimesh.Scene(objects).show()
 
 
-class NeRFDataset(Dataset):
-    def __init__(self, path, type='train', mode='colmap', preload=False, downscale=1, scale=0.33, n_test=10, fp16=False):
+class NeRFDataset:
+    def __init__(self, opt, type='train', downscale=1, n_test=10):
         super().__init__()
-        # path: the json file path.
-
-        self.root_path = path
+        
+        self.opt = opt
         self.type = type # train, val, test
-        self.mode = mode # colmap, blender, llff
         self.downscale = downscale
-        self.preload = preload # preload data into GPU
-        self.fp16 = fp16
+        self.root_path = opt.path
+        self.mode = opt.mode # colmap, blender, llff
+        self.preload = opt.preload # preload data into GPU
+        self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
+        self.fp16 = opt.fp16 # if preload, load into fp16.
 
-        # camera radius scale to make sure camera are inside the bounding box.
-        self.scale = scale
+        self.training = self.type in ['train', 'all']
+        self.num_rays = self.opt.num_rays if self.training else -1
 
         # load nerf-compatible format data.
-        if mode == 'colmap':
-            with open(os.path.join(path, 'transforms.json'), 'r') as f:
+        if self.mode == 'colmap':
+            with open(os.path.join(self.root_path, 'transforms.json'), 'r') as f:
                 transform = json.load(f)
-        elif mode == 'blender':
+        elif self.mode == 'blender':
             # load all splits (train/valid/test), this is what instant-ngp in fact does...
             if type == 'all':
-                transform_paths = glob.glob(os.path.join(path, '*.json'))
+                transform_paths = glob.glob(os.path.join(self.root_path, '*.json'))
                 transform = None
                 for transform_path in transform_paths:
                     with open(transform_path, 'r') as f:
@@ -78,11 +81,11 @@ class NeRFDataset(Dataset):
                             transform['frames'].extend(tmp_transform['frames'])
             # only load one specified split
             else:
-                with open(os.path.join(path, f'transforms_{type}.json'), 'r') as f:
+                with open(os.path.join(self.root_path, f'transforms_{type}.json'), 'r') as f:
                     transform = json.load(f)
 
         else:
-            raise NotImplementedError(f'unknown dataset mode: {mode}')
+            raise NotImplementedError(f'unknown dataset mode: {self.mode}')
 
         # load image size
         if 'h' in transform and 'w' in transform:
@@ -97,7 +100,7 @@ class NeRFDataset(Dataset):
         frames = sorted(frames, key=lambda d: d['file_path'])    
         
         # for colmap, manually interpolate a test set.
-        if mode == 'colmap' and type == 'test':
+        if self.mode == 'colmap' and type == 'test':
             
             # choose two random poses, and interpolate between.
             f0, f1 = np.random.choice(frames, 2, replace=False)
@@ -117,7 +120,7 @@ class NeRFDataset(Dataset):
 
         else:
             # for colmap, manually split a valid set (the first frame).
-            if mode == 'colmap':
+            if self.mode == 'colmap':
                 if type == 'train':
                     frames = frames[1:]
                 elif type == 'val':
@@ -128,7 +131,7 @@ class NeRFDataset(Dataset):
             self.images = []
             for f in frames:
                 f_path = os.path.join(self.root_path, f['file_path'])
-                if mode == 'blender':
+                if self.mode == 'blender':
                     f_path += '.png' # so silly...
 
                 # there are non-exist paths in fox...
@@ -155,19 +158,26 @@ class NeRFDataset(Dataset):
                 self.poses.append(pose)
                 self.images.append(image)
             
-        self.poses = np.stack(self.poses, axis=0)
+        self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
         if self.images is not None:
-            self.images = np.stack(self.images, axis=0)
+            self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
 
-        #visualize_poses(self.poses)
+        # initialize error_map
+        if type == 'train' and self.opt.error_map:
+            self.error_map = torch.ones([self.images.shape[0], 128 * 128], dtype=torch.float) # [B, 128 * 128], flattened for easy indexing, fixed resolution...
+        else:
+            self.error_map = None
 
-        if preload:
-            self.poses = torch.from_numpy(self.poses).cuda()
+        #visualize_poses(self.poses.numpy())
+
+        if self.preload:
+            self.poses = self.poses.cuda()
             if self.images is not None:
-                self.images = torch.from_numpy(self.images).to(torch.half if self.fp16 else torch.float).cuda()
+                self.images = self.images.to(torch.half if self.fp16 else torch.float).cuda()
+            if self.error_map is not None:
+                self.error_map = self.error_map.cuda()
 
         # load intrinsics
-
         if 'fl_x' in transform or 'fl_y' in transform:
             fl_x = (transform['fl_x'] if 'fl_x' in transform else transform['fl_y']) / downscale
             fl_y = (transform['fl_y'] if 'fl_y' in transform else transform['fl_x']) / downscale
@@ -178,40 +188,46 @@ class NeRFDataset(Dataset):
             if fl_x is None: fl_x = fl_y
             if fl_y is None: fl_y = fl_x
         else:
-            raise RuntimeError('cannot read focal!')
+            raise RuntimeError('Failed to load focal length, please check the transforms.json!')
 
         cx = (transform['cx'] / downscale) if 'cx' in transform else (self.H / 2)
         cy = (transform['cy'] / downscale) if 'cy' in transform else (self.W / 2)
-
-        self.intrinsic = np.eye(3, dtype=np.float32)
-        self.intrinsic[0, 0] = fl_x
-        self.intrinsic[1, 1] = fl_y
-        self.intrinsic[0, 2] = cx
-        self.intrinsic[1, 2] = cy
-
-        if preload:
-            self.intrinsic = torch.from_numpy(self.intrinsic).cuda()
+    
+        self.intrinsics = np.array([fl_x, fl_y, cx, cy])
 
 
-    def __len__(self):
-        return len(self.poses)
+    def collate(self, index):
 
-    def __getitem__(self, index):
+        B = len(index) # always 1
 
+        poses = self.poses[index].cuda() # [B, 4, 4]
+
+        error_map = None if self.error_map is None else self.error_map[index]
+        
+        rays = get_rays(poses, self.intrinsics, self.H, self.W, self.num_rays, error_map)
+        
         results = {
-            'pose': self.poses[index],
-            'intrinsic': self.intrinsic,
-            'index': index,
+            'H': self.H,
+            'W': self.W,
+            'rays_o': rays['rays_o'],
+            'rays_d': rays['rays_d'],
         }
 
-        if self.type == 'test':
-            # only string can bypass the default collate, so we don't need to call item: https://github.com/pytorch/pytorch/blob/67a275c29338a6c6cc405bf143e63d53abe600bf/torch/utils/data/_utils/collate.py#L84
-            results['H'] = str(self.H)
-            results['W'] = str(self.W)
-            # blender has test gt, so we also load it
-            if self.mode == 'blender':
-                results['image'] = self.images[index]
-        else:
-            results['image'] = self.images[index]
+        if self.images is not None:
+            images = self.images[index].cuda() # [B, H, W, 3/4]
+            if self.training:
+                C = images.shape[-1]
+                images = torch.gather(images.view(B, -1, C), 1, torch.stack(C * [rays['inds']], -1)) # [B, N, 3/4]
+            results['images'] = images
+        
+        # need inds to update error_map
+        if error_map is not None:
+            results['index'] = index
+            results['inds_coarse'] = rays['inds_coarse']
             
         return results
+
+    def dataloader(self):
+        loader = DataLoader(list(range(len(self.poses))), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
+        loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
+        return loader

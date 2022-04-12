@@ -2,10 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from hashencoder import HashEncoder
-from shencoder import SHEncoder
-
-
 class FreqEncoder(nn.Module):
     def __init__(self, input_dim, max_freq_log2, N_freqs,
                  log_sampling=True, include_input=True,
@@ -59,10 +55,16 @@ def get_encoder(encoding, input_dim=3,
         encoder = FreqEncoder(input_dim=input_dim, max_freq_log2=multires-1, N_freqs=multires, log_sampling=True)
 
     elif encoding == 'sphere_harmonics':
+        from shencoder import SHEncoder
         encoder = SHEncoder(input_dim=input_dim, degree=degree)
 
     elif encoding == 'hashgrid':
+        from hashencoder import HashEncoder
         encoder = HashEncoder(input_dim=input_dim, num_levels=num_levels, level_dim=level_dim, base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size, desired_resolution=desired_resolution)
+    
+    elif encoding == 'ash':
+        from ashencoder import AshEncoder
+        encoder = AshEncoder(input_dim=input_dim, output_dim=16, log2_hashmap_size=log2_hashmap_size, resolution=desired_resolution)
 
     else:
         raise NotImplementedError()

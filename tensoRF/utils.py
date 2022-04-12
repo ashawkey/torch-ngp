@@ -1,6 +1,7 @@
 import os
 import glob
 import tqdm
+import math
 import random
 import warnings
 import tensorboardX
@@ -36,6 +37,73 @@ def custom_meshgrid(*args):
         return torch.meshgrid(*args, indexing='ij')
 
 
+@torch.cuda.amp.autocast(enabled=False)
+def get_rays(poses, intrinsics, H, W, N=-1, error_map=None):
+    ''' get rays
+    Args:
+        poses: [B, 4, 4], cam2world
+        intrinsics: [4]
+        H, W, N: int
+        error_map: [B, 128 * 128], sample probability based on training error
+    Returns:
+        rays_o, rays_d: [B, N, 3]
+        inds: [B, N]
+    '''
+
+    device = poses.device
+    B = poses.shape[0]
+    fx, fy, cx, cy = intrinsics
+
+    i, j = custom_meshgrid(torch.linspace(0, W-1, W, device=device), torch.linspace(0, H-1, H, device=device))
+    i = i.t().reshape([1, H*W]).expand([B, H*W]) + 0.5
+    j = j.t().reshape([1, H*W]).expand([B, H*W]) + 0.5
+
+    results = {}
+
+    if N > 0:
+        N = min(N, H*W)
+
+        if error_map is None:
+            inds = torch.randint(0, H*W, size=[N], device=device) # may duplicate
+            inds = inds.expand([B, N])
+        else:
+
+            # weighted sample on a low-reso grid
+            inds_coarse = torch.multinomial(error_map.to(device), N, replacement=False) # [B, N], but in [0, 128*128)
+
+            # map to the original resolution with random perturb.
+            inds_x, inds_y = inds_coarse // 128, inds_coarse % 128 # `//` will throw a warning in torch 1.10... anyway.
+            sx, sy = H / 128, W / 128
+            inds_x = (inds_x * sx + torch.rand(B, N, device=device) * sx).long().clamp(max=H - 1)
+            inds_y = (inds_y * sy + torch.rand(B, N, device=device) * sy).long().clamp(max=W - 1)
+            inds = inds_x * W + inds_y
+
+            results['inds_coarse'] = inds_coarse # need this when updating error_map
+
+        i = torch.gather(i, -1, inds)
+        j = torch.gather(j, -1, inds)
+
+        results['inds'] = inds
+
+    else:
+        inds = torch.arange(H*W, device=device).expand([B, H*W])
+
+    zs = torch.ones_like(i)
+    xs = (i - cx) / fx * zs
+    ys = (j - cy) / fy * zs
+    directions = torch.stack((xs, ys, zs), dim=-1)
+    directions = directions / torch.norm(directions, dim=-1, keepdim=True)
+    rays_d = directions @ poses[:, :3, :3].transpose(-1, -2) # (B, N, 3)
+
+    rays_o = poses[..., :3, 3] # [B, 3]
+    rays_o = rays_o[..., None, :].expand_as(rays_d) # [B, N, 3]
+
+    results['rays_o'] = rays_o
+    results['rays_d'] = rays_d
+
+    return results
+
+
 def seed_everything(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -46,53 +114,14 @@ def seed_everything(seed):
     #torch.backends.cudnn.benchmark = True
 
 
-def lift(x, y, z, intrinsics):
-    # x, y, z: [B, N]
-    # intrinsics: [B, 3, 3]
-    
-    fx = intrinsics[..., 0, 0].unsqueeze(-1)
-    fy = intrinsics[..., 1, 1].unsqueeze(-1)
-    cx = intrinsics[..., 0, 2].unsqueeze(-1)
-    cy = intrinsics[..., 1, 2].unsqueeze(-1)
-    sk = intrinsics[..., 0, 1].unsqueeze(-1)
+@torch.jit.script
+def linear_to_srgb(x):
+    return torch.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
 
-    x_lift = (x - cx + cy * sk / fy - sk * y / fy) / fx * z
-    y_lift = (y - cy) / fy * z
 
-    # homogeneous
-    return torch.stack((x_lift, y_lift, z), dim=-1)
-
-@torch.cuda.amp.autocast(enabled=False)
-def get_rays(c2w, intrinsics, H, W, N_rays=-1):
-    # c2w: [B, 4, 4]
-    # intrinsics: [B, 3, 3]
-    # return: rays_o, rays_d: [B, N_rays, 3]
-    # return: select_inds: [B, N_rays]
-
-    device = c2w.device
-    rays_o = c2w[..., :3, 3] # [B, 3]
-    prefix = c2w.shape[:-2]
-
-    i, j = custom_meshgrid(torch.linspace(0, W-1, W, device=device), torch.linspace(0, H-1, H, device=device))
-    i = i.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W]) + 0.5
-    j = j.t().reshape([*[1]*len(prefix), H*W]).expand([*prefix, H*W]) + 0.5
-
-    if N_rays > 0:
-        N_rays = min(N_rays, H*W)
-        select_inds = torch.randint(0, H*W, size=[N_rays], device=device)
-        select_inds = select_inds.expand([*prefix, N_rays])
-        i = torch.gather(i, -1, select_inds)
-        j = torch.gather(j, -1, select_inds)
-    else:
-        select_inds = torch.arange(H*W, device=device).expand([*prefix, H*W])
-
-    directions = lift(i, j, torch.ones_like(i), intrinsics=intrinsics)
-    directions = directions / torch.norm(directions, dim=-1, keepdim=True)
-
-    rays_d = directions @ c2w[:, :3, :3].transpose(-1, -2) # (B, N_rays, 3)
-    rays_o = rays_o[..., None, :].expand_as(rays_d)
-
-    return rays_o, rays_d, select_inds
+@torch.jit.script
+def srgb_to_linear(x):
+    return torch.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
 
 
 def extract_fields(bound_min, bound_max, resolution, query_func, S=128):
@@ -306,20 +335,19 @@ class Trainer(object):
     ### ------------------------------	
 
     def train_step(self, data):
-        images = data["image"] # [B, H, W, 3/4]
-        poses = data["pose"] # [B, 4, 4]
-        intrinsics = data["intrinsic"] # [B, 3, 3]
 
-        # sample rays 
-        B, H, W, C = images.shape
-        rays_o, rays_d, inds = get_rays(poses, intrinsics, H, W, self.opt.num_rays)
-        images = torch.gather(images.reshape(B, -1, C), 1, torch.stack(C*[inds], -1)) # [B, N, 3/4]
+        rays_o = data['rays_o'] # [B, N, 3]
+        rays_d = data['rays_d'] # [B, N, 3]
+        images = data['images'] # [B, N, 3/4]
 
+        B, N, C = images.shape
+    
         # train with random background color if using alpha mixing
         #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
         #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
         bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
 
+        # train in srgb color space
         if C == 4:
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
@@ -329,7 +357,33 @@ class Trainer(object):
     
         pred_rgb = outputs['rgb']
 
-        loss = self.criterion(pred_rgb, gt_rgb)
+        loss = self.criterion(pred_rgb, gt_rgb).mean(-1) # [B, N, 3] --> [B, N]
+
+        # update error_map
+        if self.error_map is not None:
+            index = data['index'] # [B]
+            inds = data['inds_coarse'] # [B, N]
+
+            # take out, this is an advanced indexing and the copy is unavoidable.
+            error_map = self.error_map[index] # [B, H * W]
+
+            # if self.global_step % 1001 == 0:
+            #     tmp = error_map[0].view(128, 128).cpu().numpy()
+            #     print(f'[write error map] {tmp.shape} {tmp.min()} ~ {tmp.max()}')
+            #     tmp = (tmp - tmp.min()) / (tmp.max() - tmp.min())
+            #     cv2.imwrite(os.path.join(self.workspace, f'{self.global_step}.jpg'), (tmp * 255).astype(np.uint8))
+
+            error = loss.detach().to(error_map.device) # [B, N], already in [0, 1]
+            
+            # ema update
+            ema_error = 0.1 * error_map.gather(1, inds) + 0.9 * error
+            error_map.scatter_(1, inds, ema_error)
+
+            # put back
+            self.error_map[index] = error_map
+
+            
+        loss = loss.mean()
 
         # l1 reg
         loss += self.model.density_loss() * self.opt.l1_reg_weight
@@ -337,16 +391,14 @@ class Trainer(object):
         return pred_rgb, gt_rgb, loss
 
     def eval_step(self, data):
-        images = data["image"] # [B, H, W, 3/4]
-        poses = data["pose"] # [B, 4, 4]
-        intrinsics = data["intrinsic"] # [B, 3, 3]
 
-        # sample rays 
+        rays_o = data['rays_o'] # [B, N, 3]
+        rays_d = data['rays_d'] # [B, N, 3]
+        images = data['images'] # [B, H, W, 3/4]
         B, H, W, C = images.shape
-        rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
 
-        bg_color = torch.ones(3, device=self.device) # [3]
         # eval with fixed background color
+        bg_color = torch.ones(3, device=self.device) # [3]
         if C == 4:
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
@@ -354,30 +406,27 @@ class Trainer(object):
         
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
 
-        pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
+        pred_rgb = outputs['rgb'].reshape(B, H, W, 3)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
-        loss = self.criterion(pred_rgb, gt_rgb)
+        loss = self.criterion(pred_rgb, gt_rgb).mean()
 
         return pred_rgb, pred_depth, gt_rgb, loss
 
     # moved out bg_color and perturb for more flexible control...
     def test_step(self, data, bg_color=None, perturb=False):  
-        poses = data["pose"] # [B, 4, 4]
-        intrinsics = data["intrinsic"] # [B, 3, 3]
-        H, W = int(data['H'][0]), int(data['W'][0]) # get the target size...
 
-        B = poses.shape[0]
-
-        rays_o, rays_d, _ = get_rays(poses, intrinsics, H, W, -1)
+        rays_o = data['rays_o'] # [B, N, 3]
+        rays_d = data['rays_d'] # [B, N, 3]
+        H, W = data['H'], data['W']
 
         if bg_color is not None:
             bg_color = bg_color.to(self.device)
 
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
 
-        pred_rgb = outputs['rgb'].reshape(B, H, W, -1)
-        pred_depth = outputs['depth'].reshape(B, H, W)
+        pred_rgb = outputs['rgb'].reshape(-1, H, W, 3)
+        pred_depth = outputs['depth'].reshape(-1, H, W)
 
         return pred_rgb, pred_depth
 
@@ -410,9 +459,13 @@ class Trainer(object):
         if self.use_tensorboardX and self.local_rank == 0:
             self.writer = tensorboardX.SummaryWriter(os.path.join(self.workspace, "run", self.name))
 
+        # mark untrained region (i.e., not covered by any camera from the training dataset)
         if self.model.cuda_ray:
-            self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
-        
+            self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
+
+        # get a ref to error_map
+        self.error_map = train_loader._data.error_map
+
         for epoch in range(self.epoch, max_epochs + 1):
             self.epoch = epoch
 
@@ -453,8 +506,6 @@ class Trainer(object):
 
             for i, data in enumerate(loader):
                 
-                data = self.prepare_data(data)
-
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth = self.test_step(data)                
                 
@@ -491,6 +542,7 @@ class Trainer(object):
             # mark untrained grid
             if self.global_step == 0:
                 self.model.mark_untrained_grid(train_loader.dataset.poses, train_loader.dataset.intrinsic)
+                self.error_map = train_loader._data.error_map
 
             # update grid every 16 steps
             if self.model.cuda_ray and self.global_step % 16 == 0:
@@ -498,8 +550,6 @@ class Trainer(object):
                     self.model.update_extra_state()
             
             self.global_step += 1
-            
-            data = self.prepare_data(data)
 
             self.optimizer.zero_grad()
 
@@ -542,14 +592,16 @@ class Trainer(object):
         rW = int(W * downscale)
         intrinsics = intrinsics * downscale
 
-        data = {
-            'pose': pose[None, :],
-            'intrinsic': intrinsics[None, :],
-            'H': [str(rH)],
-            'W': [str(rW)],
-        }
+        pose = torch.from_numpy(pose).unsqueeze(0).to(self.device)
 
-        data = self.prepare_data(data)
+        rays_o, rays_d, inds = get_rays(pose, self.intrinsics, rH, rW, -1)
+
+        data = {
+            'rays_o': rays_o,
+            'rays_d': rays_d,
+            'H': rH,
+            'W': rW,
+        }
         
         self.model.eval()
 
@@ -577,26 +629,6 @@ class Trainer(object):
         }
 
         return outputs
-
-    def prepare_data(self, data):
-        if isinstance(data, list):
-            for i, v in enumerate(data):
-                if isinstance(v, np.ndarray):
-                    data[i] = torch.from_numpy(v).to(self.device, non_blocking=True)
-                if torch.is_tensor(v):
-                    data[i] = v.to(self.device, non_blocking=True)
-        elif isinstance(data, dict):
-            for k, v in data.items():
-                if isinstance(v, np.ndarray):
-                    data[k] = torch.from_numpy(v).to(self.device, non_blocking=True)
-                if torch.is_tensor(v):
-                    data[k] = v.to(self.device, non_blocking=True)
-        elif isinstance(data, np.ndarray):
-            data = torch.from_numpy(data).to(self.device, non_blocking=True)
-        else: # is_tensor, or other similar objects that has `to`
-            data = data.to(self.device, non_blocking=True)
-
-        return data
 
     def train_one_epoch(self, loader):
         self.log(f"==> Start Training Epoch {self.epoch}, lr={self.optimizer.param_groups[0]['lr']:.6f} ...")
@@ -628,8 +660,6 @@ class Trainer(object):
             self.local_step += 1
             self.global_step += 1
             
-            data = self.prepare_data(data)
-
             self.optimizer.zero_grad()
 
             with torch.cuda.amp.autocast(enabled=self.fp16):
@@ -722,11 +752,8 @@ class Trainer(object):
             for data in loader:    
                 self.local_step += 1
                 
-                data = self.prepare_data(data)
-
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth, truths, loss = self.eval_step(data)
-
 
                 # all_gather/reduce the statistics (NCCL only support all_*)
                 if self.world_size > 1:

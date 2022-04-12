@@ -348,10 +348,7 @@ class NeRFRenderer(nn.Module):
 
         B = poses.shape[0]
         
-        fx = intrinsic[0, 0]
-        fy = intrinsic[1, 1]
-        cx = intrinsic[0, 2]
-        cy = intrinsic[1, 2]
+        fx, fy, cx, cy = intrinsic
     
         resolution = self.density_grid.shape[1]
         

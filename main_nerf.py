@@ -11,6 +11,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str)
+    parser.add_argument('-O', action='store_true', help="equals --fp16 --cuda_ray --preload")
     parser.add_argument('--test', action='store_true', help="test mode")
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
@@ -22,6 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps', type=int, default=512)
     parser.add_argument('--upsample_steps', type=int, default=0)
     parser.add_argument('--max_ray_batch', type=int, default=4096)
+    parser.add_argument('--error_map', action='store_true', help="use error map to sample rays")
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
@@ -42,20 +44,26 @@ if __name__ == '__main__':
     parser.add_argument('--max_spp', type=int, default=64, help="GUI rendering max sample per pixel")
 
     opt = parser.parse_args()
-    print(opt)
-    
-    seed_everything(opt.seed)
+
+    if opt.O:
+        opt.fp16 = True
+        opt.cuda_ray = True
+        opt.preload = True
 
     if opt.ff:
-        assert opt.fp16, "fully-fused mode must be used with fp16 mode"
+        opt.fp16 = True
         from nerf.network_ff import NeRFNetwork
     elif opt.tcnn:
-        assert opt.fp16, "tcnn mode must be used with fp16 mode"
+        opt.fp16 = True
         from nerf.network_tcnn import NeRFNetwork
     else:
         from nerf.network import NeRFNetwork
 
+    print(opt)
+    seed_everything(opt.seed)
+
     model = NeRFNetwork(
+        encoding="hashgrid",
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
         density_scale=1,
@@ -63,7 +71,7 @@ if __name__ == '__main__':
     
     print(model)
 
-    criterion = torch.nn.MSELoss()
+    criterion = torch.nn.MSELoss(reduction='none')
 
     ### test mode
     if opt.test:
@@ -75,8 +83,7 @@ if __name__ == '__main__':
             gui.render()
         
         else:
-            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale, preload=opt.preload, fp16=opt.fp16)
-            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, pin_memory=not opt.preload)
+            test_loader = NeRFDataset(opt, type='test').dataloader()
 
             if opt.mode == 'blender':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
@@ -93,31 +100,25 @@ if __name__ == '__main__':
         ], betas=(0.9, 0.99), eps=1e-15)
 
         # need different milestones for GUI/CMD mode.
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [100, 200], gamma=0.33)
+        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [200, 400], gamma=0.33)
 
         trainer = Trainer('ngp', opt, model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
 
-        # need different dataset type for GUI/CMD mode.
-
         if opt.gui:
-            train_dataset = NeRFDataset(opt.path, type='all', mode=opt.mode, scale=opt.scale, preload=opt.preload, fp16=opt.fp16)
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True, pin_memory=not opt.preload)
+            train_loader = NeRFDataset(opt, type='all').dataloader()
             trainer.train_loader = train_loader # attach dataloader to trainer
 
             gui = NeRFGUI(opt, trainer)
             gui.render()
         
         else:
-            train_dataset = NeRFDataset(opt.path, type='train', mode=opt.mode, scale=opt.scale, preload=opt.preload, fp16=opt.fp16)
-            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True, pin_memory=not opt.preload)
-            valid_dataset = NeRFDataset(opt.path, type='val', mode=opt.mode, downscale=2, scale=opt.scale, preload=opt.preload, fp16=opt.fp16)
-            valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=1, pin_memory=not opt.preload)
+            train_loader = NeRFDataset(opt, type='train').dataloader()
+            valid_loader = NeRFDataset(opt, type='val', downscale=2).dataloader()
 
             trainer.train(train_loader, valid_loader, 300)
 
             # also test
-            test_dataset = NeRFDataset(opt.path, type='test', mode=opt.mode, scale=opt.scale, preload=opt.preload)
-            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, pin_memory=not opt.preload)
+            test_loader = NeRFDataset(opt, type='test').dataloader()
             
             if opt.mode == 'blender':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.

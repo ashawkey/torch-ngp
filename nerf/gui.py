@@ -34,12 +34,8 @@ class OrbitCamera:
     # intrinsics
     @property
     def intrinsics(self):
-        res = np.eye(3, dtype=np.float32)
         focal = self.H / (2 * np.tan(np.radians(self.fovy) / 2))
-        res[0, 0] = res[1, 1] = focal
-        res[0, 2] = self.W // 2
-        res[1, 2] = self.H // 2
-        return res
+        return np.array([focal, focal, self.H // 2, self.W // 2])
     
     def orbit(self, dx, dy):
         # rotate along camera up/side axis!

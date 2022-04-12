@@ -50,19 +50,28 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --test
 # use CUDA to accelerate ray marching (much more faster!)
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
 
+# preload data into GPU, accelerate training but use more GPU memory.
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --preload
+
+# construct an error_map for each image, and sample rays based on previous training error (experimental)
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --preload --error_map
+
+# one for all: -O means --fp16 --cuda_ray --preload, which usually gives the best results balanced on speed & performance.
+python main_nerf.py data/fox --workspace trial_nerf -O
+
 # start a GUI for NeRF training & visualization
 # always use with `--fp16 --ff/tcnn --cuda_ray` for an acceptable framerate!
-python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui
+python main_nerf.py data/fox --workspace trial_nerf -O --gui
 
 # test mode for GUI
-python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray --gui --test
+python main_nerf.py data/fox --workspace trial_nerf -O --gui --test
 
 # for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8 --dt_gamma 0`
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
 
 # for custom dataset, you should:
 # 1. take a video / many photos from different views 
@@ -71,21 +80,19 @@ python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf --fp16 --ff 
 python colmap2nerf.py --video ./data/custom/video.mp4 --run_colmap # if use video
 python colmap2nerf.py --images ./data/custom/images/ --run_colmap # if use images
 # 4. it should create the transform.json, and you can train with: (you'll need to try with different scale & bound & dt_gamma to make the object correctly located in the bounding box and render fluently.)
-python main_nerf.py data/custom --workspace trial_nerf_custom --fp16 --ff --cuda_ray --gui --scale 2.0 --bound 1.0 --dt_gamma 0.02
-
+python main_nerf.py data/custom --workspace trial_nerf_custom -O --gui --scale 2.0 --bound 1.0 --dt_gamma 0.02
 
 ### SDF
 python main_sdf.py data/armadillo.obj --workspace trial_sdf
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --tcnn
-
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff --test
 
 ### TensoRF
 # almost the same as HashNeRF, just replace the main script.
-python main_tensoRF.py data/fox --workspace trial_tensoRF --fp16 --ff --cuda_ray
-python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF --fp16 --ff --cuda_ray --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
+python main_tensoRF.py data/fox --workspace trial_tensoRF -O
+python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
 
 ```
 
@@ -132,7 +139,8 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [ ] support visualize/supervise normals (add rendering mode option).
     - [x] support blender dataset format.
 
-# Update Logs
+# Update Log
+* 4.12: optimized dataloader, add error_map sampling (experimental, will slow down training since will only sample hard rays...)
 * 4.10: add Windows support.
 * 4.9: use 6D AABB instead of a single `bound` for more flexible rendering. More options in GUI to control the AABB and `dt_gamma` for adaptive ray marching.
 * 4.9: implemented multi-res density grid (cascade) and adaptive ray marching. Now the fox renders much faster!
