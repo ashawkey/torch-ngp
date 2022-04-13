@@ -28,11 +28,11 @@ elif os.name == "nt":
             raise RuntimeError("Could not locate a supported Microsoft Visual C++ installation")
         os.environ["PATH"] += ";" + cl_path
 
-_backend = load(name='_hash_encoder',
+_backend = load(name='_grid_encoder',
                 extra_cflags=c_flags,
                 extra_cuda_cflags=nvcc_flags,
                 sources=[os.path.join(_src_path, 'src', f) for f in [
-                    'hashencoder.cu',
+                    'gridencoder.cu',
                     'bindings.cpp',
                 ]],
                 )

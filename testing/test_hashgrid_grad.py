@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import gradcheck
 import numpy as np
-from hashencoder.hashgrid import _hash_encode
+from gridencoder.grid import _grid_encode
 import random
 import os
 # import torch.random as random
@@ -58,5 +58,5 @@ print(embeddings)
 
 
 Inputs = (inputs, embeddings, offsets, per_level_scale, base_resolution, inputs.requires_grad)
-check_results1 = torch.autograd.gradcheck(_hash_encode.apply, Inputs, eps=1e-2, atol=1e-3, rtol=0.01, fast_mode=False)
+check_results1 = torch.autograd.gradcheck(_grid_encode.apply, Inputs, eps=1e-2, atol=1e-3, rtol=0.01, fast_mode=False)
 print("check_results1", check_results1)

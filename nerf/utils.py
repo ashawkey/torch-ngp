@@ -613,8 +613,8 @@ class Trainer(object):
         # interpolation to the original resolution
         if downscale != 1:
             # TODO: have to permute twice with torch...
-            preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='bilinear', align_corners=True).permute(0, 2, 3, 1).contiguous()
-            preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='bilinear', align_corners=True).squeeze(1)
+            preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='nearest').permute(0, 2, 3, 1).contiguous()
+            preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='nearest').squeeze(1)
 
         outputs = {
             'image': preds[0].detach().cpu().numpy(),

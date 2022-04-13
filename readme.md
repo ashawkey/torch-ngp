@@ -141,6 +141,7 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Log
+* 4.13: also implmented tiled grid encoder according to this [issue](https://github.com/NVlabs/instant-ngp/issues/97).
 * 4.12: optimized dataloader, add error_map sampling (experimental, will slow down training since will only sample hard rays...)
 * 4.10: add Windows support.
 * 4.9: use 6D AABB instead of a single `bound` for more flexible rendering. More options in GUI to control the AABB and `dt_gamma` for adaptive ray marching.
