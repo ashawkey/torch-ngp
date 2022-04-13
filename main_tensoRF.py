@@ -16,28 +16,30 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
     ### training options
-    parser.add_argument('--batch_size', type=int, default=1) 
-    parser.add_argument('--num_rays', type=int, default=4096)
+    parser.add_argument('--num_rays', type=int, default=4096, help="num rays sampled per image for each training step")
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
+    parser.add_argument('--num_steps', type=int, default=512, help="num steps sampled per ray (only valid when not using --cuda_ray)")
+    parser.add_argument('--upsample_steps', type=int, default=0, help="num steps up-sampled per ray (only valid when not using --cuda_ray)")
+    parser.add_argument('--max_ray_batch', type=int, default=4096, help="batch size of rays at inference to avoid OOM (only valid when not using --cuda_ray)")
+    parser.add_argument('--error_map', action='store_true', help="[experimental] use error map to sample rays")
     parser.add_argument('--l1_reg_weight', type=float, default=4e-5)
-    # (only valid when not using --cuda_ray)
-    parser.add_argument('--num_steps', type=int, default=512)
-    parser.add_argument('--upsample_steps', type=int, default=0)
-    parser.add_argument('--max_ray_batch', type=int, default=4096)
-    parser.add_argument('--error_map', action='store_true', help="use error map to sample rays")
+
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--cp', action='store_true', help="use TensorCP instead of TensorVMSplit")
     parser.add_argument('--resolution0', type=int, default=128)
     parser.add_argument('--resolution1', type=int, default=300)
     parser.add_argument("--upsample_model_steps", type=int, action="append", default=[2000, 3000, 4000, 5500, 7000])
+
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
-    # (default is for the fox dataset)
+    parser.add_argument('--rand_pose_interval', type=int, default=0, help="[experimental] sample one random poses every $ steps, for sparse view regularization. 0 disables this feature.")
+    # (the default value is for the fox dataset)
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box[-bound, bound]^3")
     parser.add_argument('--dt_gamma', type=float, default=1/128, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
+
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
     parser.add_argument('--W', type=int, default=1920, help="GUI width")
@@ -52,6 +54,7 @@ if __name__ == '__main__':
         opt.fp16 = True
         opt.cuda_ray = True
         opt.preload = True    
+
     print(opt)
     seed_everything(opt.seed)
 
@@ -69,19 +72,20 @@ if __name__ == '__main__':
     
     print(model)
 
-    criterion = torch.nn.MSELoss()
+    criterion = torch.nn.MSELoss(reduction='none')
 
-    ### test mode
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     if opt.test:
 
-        trainer = Trainer('ngp', opt, model, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer)
             gui.render()
         
         else:
-            test_loader = NeRFDataset(opt, type='test').dataloader()
+            test_loader = NeRFDataset(opt, device=device, type='test').dataloader()
 
             if opt.mode == 'blender':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
@@ -97,7 +101,7 @@ if __name__ == '__main__':
         # need different milestones for GUI/CMD mode.
         scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 2000] if opt.gui else [100, 200], gamma=0.33)
 
-        trainer = Trainer('ngp', opt, model, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint='latest', eval_interval=50)
 
         # calc upsample target resolutions
         upsample_resolutions = (np.round(np.exp(np.linspace(np.log(opt.resolution0), np.log(opt.resolution1), len(opt.upsample_model_steps) + 1)))).astype(np.int32).tolist()[1:]
@@ -105,20 +109,20 @@ if __name__ == '__main__':
         trainer.upsample_resolutions = upsample_resolutions
 
         if opt.gui:
-            train_loader = NeRFDataset(opt, type='all').dataloader()
+            train_loader = NeRFDataset(opt, device=device, type='all').dataloader()
             trainer.train_loader = train_loader # attach dataloader to trainer
 
             gui = NeRFGUI(opt, trainer)
             gui.render()
         
         else:
-            train_loader = NeRFDataset(opt, type='train').dataloader()
-            valid_loader = NeRFDataset(opt, type='val', downscale=2).dataloader()
+            train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
+            valid_loader = NeRFDataset(opt, device=device, type='val', downscale=2).dataloader()
 
             trainer.train(train_loader, valid_loader, 300)
 
             # also test
-            test_loader = NeRFDataset(opt, type='test').dataloader()
+            test_loader = NeRFDataset(opt, device=device, type='test').dataloader()
             
             if opt.mode == 'blender':
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.

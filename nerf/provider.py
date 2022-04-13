@@ -2,6 +2,7 @@ import os
 import cv2
 import glob
 import json
+import tqdm
 import numpy as np
 from scipy.spatial.transform import Slerp, Rotation
 
@@ -47,11 +48,49 @@ def visualize_poses(poses, size=0.1):
     trimesh.Scene(objects).show()
 
 
+
+def rand_poses(size, device, radius=1, theta_range=[np.pi/3, 2*np.pi/3], phi_range=[0, 2*np.pi]):
+    ''' generate random poses from an orbit camera
+    Args:
+        size: batch size of generated poses.
+        device: where to allocate the output.
+        radius: camera radius
+        theta_range: [min, max], should be in [0, \pi]
+        phi_range: [min, max], should be in [0, 2\pi]
+    Return:
+        poses: [size, 4, 4]
+    '''
+    
+    def normalize(vectors):
+        return vectors / (torch.norm(vectors, dim=-1, keepdim=True) + 1e-10)
+
+    thetas = torch.rand(size, device=device) * (theta_range[1] - theta_range[0]) + theta_range[0]
+    phis = torch.rand(size, device=device) * (phi_range[1] - phi_range[0]) + phi_range[0]
+
+    centers = torch.stack([
+        radius * torch.sin(thetas) * torch.sin(phis),
+        radius * torch.cos(thetas),
+        radius * torch.sin(thetas) * torch.cos(phis),
+    ], dim=-1) # [B, 3]
+
+    forward_vector = - normalize(centers) # camera direction (OpenGL convention!)
+    up_vector = torch.FloatTensor([0, 1, 0]).to(device).unsqueeze(0).repeat(size, 1)
+    right_vector = normalize(torch.cross(forward_vector, up_vector, dim=-1))
+    up_vector = normalize(torch.cross(right_vector, forward_vector, dim=-1))
+
+    poses = torch.eye(4, dtype=torch.float, device=device).unsqueeze(0).repeat(size, 1, 1)
+    poses[:, :3, :3] = torch.stack((right_vector, up_vector, forward_vector), dim=-1)
+    poses[:, :3, 3] = centers
+
+    return poses
+
+
 class NeRFDataset:
-    def __init__(self, opt, type='train', downscale=1, n_test=10):
+    def __init__(self, opt, device, type='train', downscale=1, n_test=10):
         super().__init__()
         
         self.opt = opt
+        self.device = device
         self.type = type # train, val, test
         self.downscale = downscale
         self.root_path = opt.path
@@ -59,6 +98,7 @@ class NeRFDataset:
         self.preload = opt.preload # preload data into GPU
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
         self.fp16 = opt.fp16 # if preload, load into fp16.
+        self.rand_pose_interval = opt.rand_pose_interval
 
         self.training = self.type in ['train', 'all']
         self.num_rays = self.opt.num_rays if self.training else -1
@@ -129,7 +169,7 @@ class NeRFDataset:
             
             self.poses = []
             self.images = []
-            for f in frames:
+            for f in tqdm.tqdm(frames, desc=f'Loading {type} data:'):
                 f_path = os.path.join(self.root_path, f['file_path'])
                 if self.mode == 'blender':
                     f_path += '.png' # so silly...
@@ -168,14 +208,15 @@ class NeRFDataset:
         else:
             self.error_map = None
 
+        # uncomment to view all training poses.
         #visualize_poses(self.poses.numpy())
 
         if self.preload:
-            self.poses = self.poses.cuda()
+            self.poses = self.poses.to(self.device)
             if self.images is not None:
-                self.images = self.images.to(torch.half if self.fp16 else torch.float).cuda()
+                self.images = self.images.to(torch.half if self.fp16 else torch.float).to(self.device)
             if self.error_map is not None:
-                self.error_map = self.error_map.cuda()
+                self.error_map = self.error_map.to(self.device)
 
         # load intrinsics
         if 'fl_x' in transform or 'fl_y' in transform:
@@ -200,7 +241,7 @@ class NeRFDataset:
 
         B = len(index) # always 1
 
-        poses = self.poses[index].cuda() # [B, 4, 4]
+        poses = self.poses[index].to(self.device) # [B, 4, 4]
 
         error_map = None if self.error_map is None else self.error_map[index]
         
@@ -214,7 +255,7 @@ class NeRFDataset:
         }
 
         if self.images is not None:
-            images = self.images[index].cuda() # [B, H, W, 3/4]
+            images = self.images[index].to(self.device) # [B, H, W, 3/4]
             if self.training:
                 C = images.shape[-1]
                 images = torch.gather(images.view(B, -1, C), 1, torch.stack(C * [rays['inds']], -1)) # [B, N, 3/4]

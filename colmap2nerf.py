@@ -271,12 +271,12 @@ if __name__ == "__main__":
                 t = tvec.reshape([3,1])
                 m = np.concatenate([np.concatenate([R, t], 1), bottom], 0)
                 c2w = np.linalg.inv(m)
-                c2w[0:3,2] *= -1 # flip the y and z axis
-                c2w[0:3,1] *= -1
-                c2w = c2w[[1,0,2,3],:] # swap y and z
-                c2w[2,:] *= -1 # flip whole world upside down
+                c2w[0:3, 2] *= -1 # flip the y and z axis
+                c2w[0:3, 1] *= -1
+                c2w = c2w[[1, 0, 2, 3],:] # swap y and z
+                c2w[2, :] *= -1 # flip whole world upside down
 
-                up += c2w[0:3,1]
+                up += c2w[0:3, 1]
 
                 frame = {"file_path" : rel_name, "sharpness" : b, "transform_matrix" : c2w}
                 out["frames"].append(frame)
@@ -284,10 +284,9 @@ if __name__ == "__main__":
     nframes = len(out["frames"])
     up = up / np.linalg.norm(up)
     print("up vector was", up)
-    R = rotmat(up,[0,0,1]) # rotate up vector to [0,0,1]
-    R = np.pad(R,[0,1])
+    R = rotmat(up, [0, 0, 1]) # rotate up vector to [0,0,1]
+    R = np.pad(R, [0, 1])
     R[-1, -1] = 1
-
 
     for f in out["frames"]:
         f["transform_matrix"] = np.matmul(R, f["transform_matrix"]) # rotate up to be the z axis
@@ -302,7 +301,7 @@ if __name__ == "__main__":
             mg = g["transform_matrix"][0:3,:]
             p, w = closest_point_2_lines(mf[:,3], mf[:,2], mg[:,3], mg[:,2])
             if w > 0.01:
-                totp += p*w
+                totp += p * w
                 totw += w
     totp /= totw
     print(totp) # the cameras are looking at totp

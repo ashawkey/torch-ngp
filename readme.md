@@ -74,6 +74,13 @@ python main_nerf.py data/fox --workspace trial_nerf -O --gui --test
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
 python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
 
+# for the LLFF dataset, you should first convert it to nerf-compatible format:
+python llff2nerf.py data/nerf_llff_data/fern # by default it use full-resolution images, and write `transforms.json` to the folder
+python llff2nerf.py data/nerf_llff_data/fern --images images_4 --downscale 4 # if you prefer to use the low-resolution images
+# then you can train as a colmap dataset (you'll need to tune the scale & bound if necessary):
+python main_nerf.py data/nerf_llff_data/fern --workspace trial_nerf -O
+python main_nerf.py data/nerf_llff_data/fern --workspace trial_nerf -O --gui
+
 # for custom dataset, you should:
 # 1. take a video / many photos from different views 
 # 2. put the video under a path like ./data/custom/video.mp4 or the images under ./data/custom/images/*.jpg.
@@ -141,6 +148,7 @@ The performance and speed of these modules are guaranteed to be on-par, and we s
     - [x] support blender dataset format.
 
 # Update Log
+* 4.13: add LLFF dataset support.
 * 4.13: also implmented tiled grid encoder according to this [issue](https://github.com/NVlabs/instant-ngp/issues/97).
 * 4.12: optimized dataloader, add error_map sampling (experimental, will slow down training since will only sample hard rays...)
 * 4.10: add Windows support.

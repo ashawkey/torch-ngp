@@ -156,11 +156,15 @@ class NeRFGUI:
 
         ### register window
 
+        # the rendered image, as the primary window
         with dpg.window(tag="_primary_window", width=self.W, height=self.H):
+
+            # add the texture
             dpg.add_image("_texture")
 
         dpg.set_primary_window("_primary_window", True)
 
+        # control window
         with dpg.window(label="Control", tag="_control_window", width=400, height=300):
 
             # button theme
