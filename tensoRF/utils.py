@@ -355,7 +355,7 @@ class Trainer(object):
 
         outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
     
-        pred_rgb = outputs['rgb']
+        pred_rgb = outputs['image']
 
         loss = self.criterion(pred_rgb, gt_rgb).mean(-1) # [B, N, 3] --> [B, N]
 
@@ -406,7 +406,7 @@ class Trainer(object):
         
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
 
-        pred_rgb = outputs['rgb'].reshape(B, H, W, 3)
+        pred_rgb = outputs['image'].reshape(B, H, W, 3)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
         loss = self.criterion(pred_rgb, gt_rgb).mean()
@@ -425,7 +425,7 @@ class Trainer(object):
 
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
 
-        pred_rgb = outputs['rgb'].reshape(-1, H, W, 3)
+        pred_rgb = outputs['image'].reshape(-1, H, W, 3)
         pred_depth = outputs['depth'].reshape(-1, H, W)
 
         return pred_rgb, pred_depth
@@ -620,8 +620,8 @@ class Trainer(object):
         # interpolation to the original resolution
         if downscale != 1:
             # TODO: have to permute twice with torch...
-            preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='bilinear', align_corners=True).permute(0, 2, 3, 1).contiguous()
-            preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='bilinear', align_corners=True).squeeze(1)
+            preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='nearest').permute(0, 2, 3, 1).contiguous()
+            preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='nearest').squeeze(1)
 
         outputs = {
             'image': preds[0].detach().cpu().numpy(),

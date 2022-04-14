@@ -225,7 +225,15 @@ class NeRFRenderer(nn.Module):
         image = image.view(*prefix, 3)
         depth = depth.view(*prefix)
 
-        return depth, image
+        # tmp: reg loss in mip-nerf 360
+        # z_vals_shifted = torch.cat([z_vals[..., 1:], sample_dist * torch.ones_like(z_vals[..., :1])], dim=-1)
+        # mid_zs = (z_vals + z_vals_shifted) / 2 # [N, T]
+        # loss_dist = (torch.abs(mid_zs.unsqueeze(1) - mid_zs.unsqueeze(2)) * (weights.unsqueeze(1) * weights.unsqueeze(2))).sum() + 1/3 * ((z_vals_shifted - z_vals_shifted) * (weights ** 2)).sum()
+
+        return {
+            'depth': depth,
+            'image': image,
+        }
 
 
     def run_cuda(self, rays_o, rays_d, dt_gamma=0, bg_color=None, perturb=False, **kwargs):
@@ -258,17 +266,11 @@ class NeRFRenderer(nn.Module):
             density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
             sigmas = density_outputs['sigma']
             sigmas = self.density_scale * sigmas
-            weights = raymarching.composite_weights_train(sigmas, deltas, rays) # [M,]
-
-            # masked rgb cannot accelerate cuda_ray training, disabled! (mask ratio is only ~50%, cannot beat the mask/unmask overhead.)
-            mask = None # weights > 1e-4
-            rgbs = self.color(xyzs, dirs, mask=mask, **density_outputs)
+            rgbs = self.color(xyzs, dirs, **density_outputs)
 
             #print(f'valid RGB query ratio: {mask.sum().item() / mask.shape[0]} (total = {mask.sum().item()})')
 
-            weights_sum, image = raymarching.composite_rays_train(weights, rgbs, rays)
-
-            depth = None # currently training do not requires depth
+            weights_sum, depth, image = raymarching.composite_rays_train(sigmas, rgbs, deltas, rays)
 
         else:
            
@@ -316,7 +318,6 @@ class NeRFRenderer(nn.Module):
                 density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
                 sigmas = density_outputs['sigma']
                 sigmas = self.density_scale * sigmas
-                # no need for weights mask, since we already terminated those rays.
                 rgbs = self.color(xyzs, dirs, **density_outputs)
 
                 raymarching.composite_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], sigmas, rgbs, deltas, weights_sum, depth, image)
@@ -329,11 +330,13 @@ class NeRFRenderer(nn.Module):
         image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
         image = image.view(*prefix, 3)
 
-        if depth is not None:
-            depth = torch.clamp(depth - nears, min=0) / (fars - nears)
-            depth = depth.view(*prefix)
+        depth = torch.clamp(depth - nears, min=0) / (fars - nears)
+        depth = depth.view(*prefix)
 
-        return depth, image
+        return {
+            'depth': depth,
+            'image': image,
+        }
 
     @torch.no_grad()
     def mark_untrained_grid(self, poses, intrinsic, S=64):
@@ -408,10 +411,13 @@ class NeRFRenderer(nn.Module):
         
         ### update density grid
         resolution = self.density_grid.shape[1]
-        
-        tmp_grid = torch.zeros_like(self.density_grid)
 
         # TODO: random sample coordinates after a warm up, instead of always uniformly query all cascades!
+        # TODO: cast to bit mask to accelerate.
+        # TODO: check `bitfield_max_pool`, should apply max pool across consequent cascades! (this is a must if using random sampling...)
+        # too difficult in pytorch...
+
+        tmp_grid = torch.zeros_like(self.density_grid)
 
         X = torch.linspace(-1, 1, resolution).split(S)
         Y = torch.linspace(-1, 1, resolution).split(S)
@@ -439,8 +445,6 @@ class NeRFRenderer(nn.Module):
                         # assign 
                         tmp_grid[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas
         
-        # TODO: check `bitfield_max_pool`, should apply max pool across consequent cascades!
-        # TODO: cast to bit mask to accelerate.
         
         # ema update
         valid_mask = self.density_grid >= 0
@@ -478,15 +482,16 @@ class NeRFRenderer(nn.Module):
                 head = 0
                 while head < N:
                     tail = min(head + max_ray_batch, N)
-                    depth_, image_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], bg_color=bg_color, perturb=perturb, **kwargs)
-                    depth[b:b+1, head:tail] = depth_
-                    image[b:b+1, head:tail] = image_
+                    results_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], bg_color=bg_color, perturb=perturb, **kwargs)
+                    depth[b:b+1, head:tail] = results_['depth']
+                    image[b:b+1, head:tail] = results_['image']
                     head += max_ray_batch
-        else:
-            depth, image = _run(rays_o, rays_d, bg_color=bg_color, perturb=perturb, **kwargs)
-
-        results = {}
-        results['depth'] = depth
-        results['rgb'] = image
             
+            results = {}
+            results['depth'] = depth
+            results['image'] = image
+
+        else:
+            results = _run(rays_o, rays_d, bg_color=bg_color, perturb=perturb, **kwargs)
+
         return results

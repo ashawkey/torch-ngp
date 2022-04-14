@@ -97,6 +97,7 @@ class NeRFDataset:
         self.mode = opt.mode # colmap, blender, llff
         self.preload = opt.preload # preload data into GPU
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
+        self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
         self.fp16 = opt.fp16 # if preload, load into fp16.
         self.rand_pose_interval = opt.rand_pose_interval
 
@@ -241,6 +242,21 @@ class NeRFDataset:
 
         B = len(index) # always 1
 
+        # random pose without gt images.
+        if index[0] >= len(self.poses):
+
+            poses = rand_poses(B, self.device, radius=self.bound)
+
+            # may need different stragegy, e.g., downscaled whole image (CLIP), or random patch (piecewise smoothness).
+            rays = get_rays(poses, self.intrinsics, self.H, self.W, -1)
+
+            return {
+                'H': self.H,
+                'W': self.W,
+                'rays_o': rays['rays_o'],
+                'rays_d': rays['rays_d'],    
+            }
+
         poses = self.poses[index].to(self.device) # [B, 4, 4]
 
         error_map = None if self.error_map is None else self.error_map[index]
@@ -269,6 +285,9 @@ class NeRFDataset:
         return results
 
     def dataloader(self):
-        loader = DataLoader(list(range(len(self.poses))), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
+        size = len(self.poses)
+        if self.training and self.rand_pose_interval > 0:
+            size += size // self.rand_pose_interval # index >= size means we use random pose.
+        loader = DataLoader(list(range(size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
         loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
         return loader

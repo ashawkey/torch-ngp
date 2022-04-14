@@ -351,7 +351,7 @@ class Trainer(object):
 
         outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
     
-        pred_rgb = outputs['rgb']
+        pred_rgb = outputs['image']
 
         loss = self.criterion(pred_rgb, gt_rgb).mean(-1) # [B, N, 3] --> [B, N]
 
@@ -378,7 +378,6 @@ class Trainer(object):
             # put back
             self.error_map[index] = error_map
 
-            
         loss = loss.mean()
 
         return pred_rgb, gt_rgb, loss
@@ -399,7 +398,7 @@ class Trainer(object):
         
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
 
-        pred_rgb = outputs['rgb'].reshape(B, H, W, 3)
+        pred_rgb = outputs['image'].reshape(B, H, W, 3)
         pred_depth = outputs['depth'].reshape(B, H, W)
 
         loss = self.criterion(pred_rgb, gt_rgb).mean()
@@ -418,7 +417,7 @@ class Trainer(object):
 
         outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
 
-        pred_rgb = outputs['rgb'].reshape(-1, H, W, 3)
+        pred_rgb = outputs['image'].reshape(-1, H, W, 3)
         pred_depth = outputs['depth'].reshape(-1, H, W)
 
         return pred_rgb, pred_depth
