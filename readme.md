@@ -11,22 +11,31 @@ https://user-images.githubusercontent.com/25863658/155265815-c608254f-2f00-4664-
 # Install
 ```bash
 git clone --recursive https://github.com/ashawkey/torch-ngp.git
-
 cd torch-ngp
+```
 
+## Install requirements with pip
+```
 pip install -r requirements.txt
 
 # (optional) install the tcnn backbone
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ```
 
-Tested on: 
+## Install requirements with conda
+```
+conda env create -f environment.yml
+conda activate torch-ngp
+```
+
+## Tested environments
 * Ubuntu 20 with torch 1.10 & CUDA 11.3 on a TITAN RTX.
 * Ubuntu 16 with torch 1.8 & CUDA 10.1 on a V100.
 * Windows 10 with torch 1.11 & CUDA 11.3 on a RTX 3070.
 
 Currently, `--ff` only supports GPUs with CUDA architecture `>= 70`.
 For GPUs with lower architecture, `--tcnn` can still be used, but the speed will be slower compared to more recent GPUs.
+
 
 # Usage
 
