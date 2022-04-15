@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include <torch/torch.h>
-#include <torch/extension.h>
 
 // inputs: [B, D], float, in [0, 1]
 // embeddings: [sO, C], float

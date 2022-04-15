@@ -45,7 +45,6 @@
 #include <type_traits>
 
 #include <torch/torch.h>
-#include <torch/extension.h>
 
 #include "utils.h"
 

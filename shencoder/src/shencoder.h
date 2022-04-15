@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 #include <torch/torch.h>
-#include <torch/extension.h>
 
 // inputs: [B, D], float, in [-1, 1]
 // outputs: [B, F], float

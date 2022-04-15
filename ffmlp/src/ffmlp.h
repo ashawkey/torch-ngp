@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <torch/torch.h>
-#include <torch/extension.h>
+
 
 // activation: should have been enum, here we just use int.
 void ffmlp_forward(const at::Tensor inputs, const at::Tensor weights, const uint32_t B, const uint32_t input_dim, const uint32_t output_dim, const uint32_t hidden_dim, const uint32_t num_layers, const uint32_t activation_, const uint32_t output_activation_, at::Tensor forward_buffer, at::Tensor outputs);

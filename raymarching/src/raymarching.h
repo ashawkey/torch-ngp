@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <torch/torch.h>
-#include <torch/extension.h>
+
 
 void near_far_from_aabb(at::Tensor rays_o, at::Tensor rays_d, at::Tensor aabb, const uint32_t N, const float min_near, at::Tensor nears, at::Tensor fars);
 
