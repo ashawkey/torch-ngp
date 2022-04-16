@@ -13,7 +13,7 @@ if os.name == "posix":
     nvcc_flags += ['-Xcompiler=-mf16c', '-Xcompiler=-Wno-float-conversion', '-Xcompiler=-fno-strict-aliasing']
     c_flags = ['-O3', '-std=c++14']
 elif os.name == "nt":
-    c_flags = ['/O2', '/std:c++14']
+    c_flags = ['/O2', '/std:c++17']
 
     # find cl.exe
     def find_cl_path():
