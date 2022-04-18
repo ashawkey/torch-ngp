@@ -31,11 +31,11 @@ __host__ __device__ T div_round_up(T val, T divisor) {
     return (val + divisor - 1) / divisor;
 }
 
-inline __host__ __device__ float signf(float x) {
+inline __host__ __device__ float signf(const float x) {
     return copysignf(1.0, x);
 }
 
-inline __host__ __device__ float clamp(float x, const float min, const float max) {
+inline __host__ __device__ float clamp(const float x, const float min, const float max) {
     return fminf(max, fmaxf(min, x));
 }
 
@@ -43,8 +43,8 @@ inline __host__ __device__ void swapf(float& a, float& b) {
     float c = a; a = b; b = c;
 }
 
-inline __device__ int mip_from_pos(float x, float y, float z, float max_cascade) {
-    float mx = fmaxf(fabsf(x), fmaxf(fabs(y), fabs(z)));
+inline __device__ int mip_from_pos(const float x, const float y, const float z, const float max_cascade) {
+    const float mx = fmaxf(fabsf(x), fmaxf(fabs(y), fabs(z)));
     int exponent;
     frexpf(mx, &exponent); // [0, 0.5) --> -1, [0.5, 1) --> 0, [1, 2) --> 1, [2, 4) --> 2, ...
     return fminf(max_cascade - 1, fmaxf(0, exponent));
@@ -116,14 +116,6 @@ __global__ void kernel_near_far_from_aabb(
 
 
 void near_far_from_aabb(at::Tensor rays_o, at::Tensor rays_d, at::Tensor aabb, const uint32_t N, const float min_near, at::Tensor nears, at::Tensor fars) {
-    CHECK_CUDA(rays_o);
-    CHECK_CUDA(rays_d);
-
-    CHECK_CONTIGUOUS(rays_o);
-    CHECK_CONTIGUOUS(rays_d);
-
-    CHECK_IS_FLOATING(rays_o);
-    CHECK_IS_FLOATING(rays_d);
 
     static constexpr uint32_t N_THREAD = 256;
 
@@ -496,17 +488,6 @@ __global__ void kernel_composite_rays_train_backward(
 
 
 void march_rays_train(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float mean_density, const float bound, const float dt_gamma, const uint32_t N, const uint32_t C, const uint32_t H, const uint32_t M, at::Tensor nears, at::Tensor fars, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, const uint32_t perturb) {
-    CHECK_CUDA(rays_o);
-    CHECK_CUDA(rays_d);
-    CHECK_CUDA(grid);
-
-    CHECK_CONTIGUOUS(rays_o);
-    CHECK_CONTIGUOUS(rays_d);
-    CHECK_CONTIGUOUS(grid);
-
-    CHECK_IS_FLOATING(rays_o);
-    CHECK_IS_FLOATING(rays_d);
-    CHECK_IS_FLOATING(grid);
 
     static constexpr uint32_t N_THREAD = 256;
 

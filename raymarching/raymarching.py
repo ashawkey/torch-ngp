@@ -27,6 +27,9 @@ class _near_far_from_aabb(Function):
             nears: float, [N]
             fars: float, [N]
         '''
+        if not rays_o.is_cuda: rays_o = rays_o.cuda()
+        if not rays_d.is_cuda: rays_d = rays_d.cuda()
+
         rays_o = rays_o.contiguous().view(-1, 3)
         rays_d = rays_d.contiguous().view(-1, 3)
 
@@ -67,9 +70,14 @@ class _march_rays_train(Function):
             deltas: float, [M, 2], all generated points' deltas. (first for RGB, second for Depth)
             rays: int32, [N, 3], all rays' (index, point_offset, point_count), e.g., xyzs[rays[i, 1]:rays[i, 2]] --> points belonging to rays[i, 0]
         '''
+
+        if not rays_o.is_cuda: rays_o = rays_o.cuda()
+        if not rays_d.is_cuda: rays_d = rays_d.cuda()
+        if not density_grid.is_cuda: density_grid = density_grid.cuda()
         
         rays_o = rays_o.contiguous().view(-1, 3)
         rays_d = rays_d.contiguous().view(-1, 3)
+        density_grid = density_grid.contiguous()
 
         N = rays_o.shape[0] # num rays
 
@@ -194,6 +202,9 @@ class _march_rays(Function):
             dirs: float, [n_alive * n_step, 3], all generated points' view dirs.
             deltas: float, [n_alive * n_step, 2], all generated points' deltas (here we record two deltas, the first is for RGB, the second for depth).
         '''
+        
+        if not rays_o.is_cuda: rays_o = rays_o.cuda()
+        if not rays_d.is_cuda: rays_d = rays_d.cuda()
         
         rays_o = rays_o.contiguous().view(-1, 3)
         rays_d = rays_d.contiguous().view(-1, 3)

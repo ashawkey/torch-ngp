@@ -113,6 +113,27 @@ def seed_everything(seed):
     #torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = True
 
+def torch_vis_2d(x, renormalize=False):
+    # x: [3, H, W] or [1, H, W] or [H, W]
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import torch
+    
+    if isinstance(x, torch.Tensor):
+        if len(x.shape) == 3:
+            x = x.permute(1,2,0).squeeze()
+        x = x.detach().cpu().numpy()
+        
+    print(f'[torch_vis_2d] {x.shape}, {x.dtype}, {x.min()} ~ {x.max()}')
+    
+    x = x.astype(np.float32)
+    
+    # renormalize
+    if renormalize:
+        x = (x - x.min(axis=0, keepdims=True)) / (x.max(axis=0, keepdims=True) - x.min(axis=0, keepdims=True) + 1e-8)
+
+    plt.imshow(x)
+    plt.show()
 
 @torch.jit.script
 def linear_to_srgb(x):
@@ -304,6 +325,9 @@ class Trainer(object):
             elif self.use_checkpoint == "latest":
                 self.log("[INFO] Loading latest checkpoint ...")
                 self.load_checkpoint()
+            elif self.use_checkpoint == "latest_model":
+                self.log("[INFO] Loading latest checkpoint (model only)...")
+                self.load_checkpoint(model_only=True)
             elif self.use_checkpoint == "best":
                 if os.path.exists(self.best_path):
                     self.log("[INFO] Loading best checkpoint ...")
@@ -314,10 +338,18 @@ class Trainer(object):
             else: # path to ckpt
                 self.log(f"[INFO] Loading {self.use_checkpoint} ...")
                 self.load_checkpoint(self.use_checkpoint)
+        
+        # clip loss prepare
+        if opt.rand_pose >= 0: # =0 means only using CLIP loss, >0 means a hybrid mode.
+            from nerf.clip_utils import CLIPLoss
+            self.clip_loss = CLIPLoss(self.device)
+            self.clip_loss.prepare_text([self.opt.clip_text]) # only support one text prompt now...
+
 
     def __del__(self):
         if self.log_ptr: 
             self.log_ptr.close()
+
 
     def log(self, *args, **kwargs):
         if self.local_rank == 0:
@@ -334,19 +366,37 @@ class Trainer(object):
 
         rays_o = data['rays_o'] # [B, N, 3]
         rays_d = data['rays_d'] # [B, N, 3]
+
+        # if there is no gt image, we train with CLIP loss.
+        if 'images' not in data:
+
+            B, N = rays_o.shape[:2]
+            H, W = data['H'], data['W']
+
+            # currently fix white bg, MUST force all rays!
+            outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=None, perturb=True, force_all_rays=True, **vars(self.opt))
+            pred_rgb = outputs['image'].reshape(B, H, W, 3).permute(0, 3, 1, 2).contiguous()
+
+            # [debug] uncomment to plot the images used in train_step
+            #torch_vis_2d(pred_rgb[0])
+
+            loss = self.clip_loss(pred_rgb)
+            
+            return pred_rgb, None, loss
+
         images = data['images'] # [B, N, 3/4]
 
         B, N, C = images.shape
     
-        # train with random background color if using alpha mixing
-        #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
-        #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
-        bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
-
         # train in srgb color space
         if C == 4:
+            # train with random background color if using alpha mixing
+            #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
+            #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
+            bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
+            bg_color = None
             gt_rgb = images
 
         outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
@@ -363,6 +413,7 @@ class Trainer(object):
             # take out, this is an advanced indexing and the copy is unavoidable.
             error_map = self.error_map[index] # [B, H * W]
 
+            # [debug] uncomment to save and visualize error map
             # if self.global_step % 1001 == 0:
             #     tmp = error_map[0].view(128, 128).cpu().numpy()
             #     print(f'[write error map] {tmp.shape} {tmp.min()} ~ {tmp.max()}')
@@ -390,7 +441,7 @@ class Trainer(object):
         B, H, W, C = images.shape
 
         # eval with fixed background color
-        bg_color = torch.ones(3, device=self.device) # [3]
+        bg_color = 1
         if C == 4:
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
@@ -853,7 +904,7 @@ class Trainer(object):
             else:
                 self.log(f"[WARN] no evaluated results found, skip saving best checkpoint.")
             
-    def load_checkpoint(self, checkpoint=None):
+    def load_checkpoint(self, checkpoint=None, model_only=False):
         if checkpoint is None:
             checkpoint_list = sorted(glob.glob(f'{self.ckpt_path}/{self.name}_ep*.pth.tar'))
             if checkpoint_list:
@@ -880,33 +931,35 @@ class Trainer(object):
         if self.ema is not None and 'ema' in checkpoint_dict:
             self.ema.load_state_dict(checkpoint_dict['ema'])
 
-        self.stats = checkpoint_dict['stats']
-        self.epoch = checkpoint_dict['epoch']
-
         if self.model.cuda_ray:
             if 'mean_count' in checkpoint_dict:
                 self.model.mean_count = checkpoint_dict['mean_count']
             if 'mean_density' in checkpoint_dict:
                 self.model.mean_density = checkpoint_dict['mean_density']
         
+        if model_only:
+            return
+
+        self.stats = checkpoint_dict['stats']
+        self.epoch = checkpoint_dict['epoch']
+        
         if self.optimizer and  'optimizer' in checkpoint_dict:
             try:
                 self.optimizer.load_state_dict(checkpoint_dict['optimizer'])
                 self.log("[INFO] loaded optimizer.")
             except:
-                self.log("[WARN] Failed to load optimizer, use default.")
+                self.log("[WARN] Failed to load optimizer.")
         
-        # strange bug: keyerror 'lr_lambdas'
         if self.lr_scheduler and 'lr_scheduler' in checkpoint_dict:
             try:
                 self.lr_scheduler.load_state_dict(checkpoint_dict['lr_scheduler'])
                 self.log("[INFO] loaded scheduler.")
             except:
-                self.log("[WARN] Failed to load scheduler, use default.")
+                self.log("[WARN] Failed to load scheduler.")
         
-        if 'scaler' in checkpoint_dict:
+        if self.scaler and 'scaler' in checkpoint_dict:
             try:
                 self.scaler.load_state_dict(checkpoint_dict['scaler'])
                 self.log("[INFO] loaded scaler.")
             except:
-                self.log("[WARN] Failed to load scaler, use default.")
+                self.log("[WARN] Failed to load scaler.")

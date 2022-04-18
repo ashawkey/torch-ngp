@@ -131,32 +131,8 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 * For TensoRF, we don't implement AABB shrinking and regularizations other than L1.
 
 
-# Progress
-
-As the official pytorch extension [tinycudann](https://github.com/NVlabs/tiny-cuda-nn) has been released, the following implementations can be used as modular alternatives. 
-The performance and speed of these modules are guaranteed to be on-par, and we support using tinycudann as the backbone by the `--tcnn` flag.
-
-* Fully-fused MLP
-    - [x] basic pytorch binding of the [original implementation](https://github.com/NVlabs/tiny-cuda-nn)
-* HashGrid Encoder
-    - [x] basic pytorch CUDA extension
-    - [x] fp16 support 
-* Experiments
-    - SDF
-        - [x] baseline
-        - [ ] better SDF calculation (especially for non-watertight meshes)
-    - NeRF
-        - [x] baseline
-        - [x] ray marching in CUDA.
-* NeRF GUI
-    - [x] supports training.
-* Misc.
-    - [x] improve rendering quality of cuda raymarching!
-    - [ ] improve speed (e.g., avoid the `cat` in NeRF forward)
-    - [ ] support visualize/supervise normals (add rendering mode option).
-    - [x] support blender dataset format.
-
 # Update Log
+* 4.18: add some experimental utils for random pose sampling and combined training with CLIP.
 * 4.13: add LLFF dataset support.
 * 4.13: also implmented tiled grid encoder according to this [issue](https://github.com/NVlabs/instant-ngp/issues/97).
 * 4.12: optimized dataloader, add error_map sampling (experimental, will slow down training since will only sample hard rays...)

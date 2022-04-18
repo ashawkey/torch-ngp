@@ -73,8 +73,9 @@ def rand_poses(size, device, radius=1, theta_range=[np.pi/3, 2*np.pi/3], phi_ran
         radius * torch.sin(thetas) * torch.cos(phis),
     ], dim=-1) # [B, 3]
 
-    forward_vector = - normalize(centers) # camera direction (OpenGL convention!)
-    up_vector = torch.FloatTensor([0, 1, 0]).to(device).unsqueeze(0).repeat(size, 1)
+    # lookat
+    forward_vector = - normalize(centers)
+    up_vector = torch.FloatTensor([0, -1, 0]).to(device).unsqueeze(0).repeat(size, 1) # confused at the coordinate system...
     right_vector = normalize(torch.cross(forward_vector, up_vector, dim=-1))
     up_vector = normalize(torch.cross(right_vector, forward_vector, dim=-1))
 
@@ -99,10 +100,11 @@ class NeRFDataset:
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
         self.fp16 = opt.fp16 # if preload, load into fp16.
-        self.rand_pose_interval = opt.rand_pose_interval
 
         self.training = self.type in ['train', 'all']
         self.num_rays = self.opt.num_rays if self.training else -1
+
+        self.rand_pose = opt.rand_pose
 
         # load nerf-compatible format data.
         if self.mode == 'colmap':
@@ -202,6 +204,10 @@ class NeRFDataset:
         self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
         if self.images is not None:
             self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
+        
+        # calculate mean radius of all camera poses
+        self.radius = self.poses[:, :3, 3].norm(dim=-1).mean(0).item()
+        #print(f'[INFO] dataset camera poses: radius = {self.radius:.4f}, bound = {self.bound}')
 
         # initialize error_map
         if type == 'train' and self.opt.error_map:
@@ -209,8 +215,11 @@ class NeRFDataset:
         else:
             self.error_map = None
 
-        # uncomment to view all training poses.
-        #visualize_poses(self.poses.numpy())
+        # [debug] uncomment to view all training poses.
+        # visualize_poses(self.poses.numpy())
+
+        # [debug] uncomment to view examples of randomly generated poses.
+        # visualize_poses(rand_poses(100, self.device, radius=self.radius).cpu().numpy())
 
         if self.preload:
             self.poses = self.poses.to(self.device)
@@ -243,16 +252,18 @@ class NeRFDataset:
         B = len(index) # always 1
 
         # random pose without gt images.
-        if index[0] >= len(self.poses):
+        if self.rand_pose == 0 or index[0] >= len(self.poses):
 
-            poses = rand_poses(B, self.device, radius=self.bound)
+            poses = rand_poses(B, self.device, radius=self.radius)
 
-            # may need different stragegy, e.g., downscaled whole image (CLIP), or random patch (piecewise smoothness).
-            rays = get_rays(poses, self.intrinsics, self.H, self.W, -1)
+            # sample a low-resolution but full image for CLIP
+            s = np.sqrt(self.H * self.W / self.num_rays) # only in training, assert num_rays > 0
+            rH, rW = int(self.H / s), int(self.W / s)
+            rays = get_rays(poses, self.intrinsics / s, rH, rW, -1)
 
             return {
-                'H': self.H,
-                'W': self.W,
+                'H': rH,
+                'W': rW,
                 'rays_o': rays['rays_o'],
                 'rays_d': rays['rays_d'],    
             }
@@ -286,8 +297,8 @@ class NeRFDataset:
 
     def dataloader(self):
         size = len(self.poses)
-        if self.training and self.rand_pose_interval > 0:
-            size += size // self.rand_pose_interval # index >= size means we use random pose.
+        if self.training and self.rand_pose > 0:
+            size += size // self.rand_pose # index >= size means we use random pose.
         loader = DataLoader(list(range(size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
         loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
         return loader

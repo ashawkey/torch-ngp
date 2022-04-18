@@ -7,7 +7,8 @@ import json
 
 import argparse
 
-def closest_point_2_lines(oa, da, ob, db): # returns point closest to both rays of form o+t*d, and a weight factor that goes to 0 if the lines are parallel
+# returns point closest to both rays of form o+t*d, and a weight factor that goes to 0 if the lines are parallel
+def closest_point_2_lines(oa, da, ob, db): 
     da = da / np.linalg.norm(da)
     db = db / np.linalg.norm(db)
     c = np.cross(da, db)
@@ -85,13 +86,15 @@ if __name__ == '__main__':
     totp = np.array([0.0, 0.0, 0.0])
     for i in range(N):
         mf = poses[i, :3, :]
-        for j in range(N):
+        for j in range(i + 1, N):
             mg = poses[j, :3, :]
             p, w = closest_point_2_lines(mf[:,3], mf[:,2], mg[:,3], mg[:,2])
+            #print(i, j, p, w)
             if w > 0.01:
                 totp += p * w
                 totw += w
     totp /= totw
+    print(f'[INFO] totp = {totp}')
     poses[:, :3, 3] -= totp
 
     avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean()

@@ -10,6 +10,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true', help="test mode")
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--lr', type=float, default=1e-4, help="initial learning rate")
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
     parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
     parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
@@ -50,7 +51,7 @@ if __name__ == '__main__':
         optimizer = lambda model: torch.optim.Adam([
             {'name': 'encoding', 'params': model.encoder.parameters()},
             {'name': 'net', 'params': model.backbone.parameters(), 'weight_decay': 1e-6},
-        ], lr=1e-4, betas=(0.9, 0.99), eps=1e-15)
+        ], lr=opt.lr, betas=(0.9, 0.99), eps=1e-15)
 
         scheduler = lambda optimizer: optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
