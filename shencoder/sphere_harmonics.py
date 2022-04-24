@@ -6,7 +6,10 @@ from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd 
 
-from .backend import _backend
+try:
+    import _shencoder as _backend
+except ImportError:
+    from .backend import _backend
 
 class _sh_encoder(Function):
     @staticmethod

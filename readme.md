@@ -14,21 +14,35 @@ git clone --recursive https://github.com/ashawkey/torch-ngp.git
 cd torch-ngp
 ```
 
-## Install requirements with pip
-```
+### Install with pip
+```bash
 pip install -r requirements.txt
 
 # (optional) install the tcnn backbone
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
 ```
 
-## Install requirements with conda
-```
+### Install with conda
+```bash
 conda env create -f environment.yml
 conda activate torch-ngp
 ```
 
-## Tested environments
+### Build extension (optional)
+By default, we use [`load`](https://pytorch.org/docs/stable/cpp_extension.html#torch.utils.cpp_extension.load) to build the extension at runtime.
+However, this may be inconvenient if you want to use the extensions elsewhere.
+Therefore, we also provide the `setup.py` to build / install each extension:
+```bash
+# install all extension modules
+bash scripts/install_ext.sh
+
+# if you want to install manually, here is an example:
+cd raymarching
+python setup.py build_ext --inplace # build ext only, do not install (only can be used in the parent directory)
+pip install . # install, can be used everywhere. 
+```
+
+### Tested environments
 * Ubuntu 20 with torch 1.10 & CUDA 11.3 on a TITAN RTX.
 * Ubuntu 16 with torch 1.8 & CUDA 10.1 on a V100.
 * Windows 10 with torch 1.11 & CUDA 11.3 on a RTX 3070.
