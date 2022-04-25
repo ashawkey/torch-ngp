@@ -104,6 +104,12 @@ python llff2nerf.py data/nerf_llff_data/fern --images images_4 --downscale 4 # i
 python main_nerf.py data/nerf_llff_data/fern --workspace trial_nerf -O
 python main_nerf.py data/nerf_llff_data/fern --workspace trial_nerf -O --gui
 
+# for the Tanks&Temples dataset, you should first convert it to nerf-compatible format:
+python tanks2nerf.py data/TanksAndTemple/Family # write `trainsforms_{split}.json` for [train, val, test]
+# then you can train as a blender dataset (you'll need to tune the scale & bound if necessary)
+python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O --mode blender --bound 1.0 --scale 0.33 --dt_gamma 0
+python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O --mode blender --bound 1.0 --scale 0.33 --dt_gamma 0 --gui
+
 # for custom dataset, you should:
 # 1. take a video / many photos from different views 
 # 2. put the video under a path like ./data/custom/video.mp4 or the images under ./data/custom/images/*.jpg.
@@ -146,6 +152,7 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 
 
 # Update Log
+* 4.25: add Tanks&Temples dataset support.
 * 4.18: add some experimental utils for random pose sampling and combined training with CLIP.
 * 4.13: add LLFF dataset support.
 * 4.13: also implmented tiled grid encoder according to this [issue](https://github.com/NVlabs/instant-ngp/issues/97).
