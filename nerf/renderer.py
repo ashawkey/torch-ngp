@@ -383,9 +383,9 @@ class NeRFRenderer(nn.Module):
                         while head < B:
                             tail = min(head + S, B)
 
-                            # world2cam transform (poses is c2w, so we need to transpose)
+                            # world2cam transform (poses is c2w, so we need to transpose it. Another transpose is needed for batched matmul, so the final form is without transpose.)
                             cam_xyzs = cas_world_xyzs - poses[head:tail, :3, 3].unsqueeze(1)
-                            cam_xyzs = cam_xyzs @ poses[head:tail, :3, :3].transpose(1, 2) # [S, N, 3]
+                            cam_xyzs = cam_xyzs @ poses[head:tail, :3, :3] # [S, N, 3]
                             
                             # query if point is covered by any camera
                             mask_z = cam_xyzs[:, :, 2] > 0 # [S, N]
