@@ -16,6 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('--workspace', type=str, default='workspace')
     parser.add_argument('--seed', type=int, default=0)
     ### training options
+    parser.add_argument('--iters', type=int, default=30000, help="training iters")
     parser.add_argument('--lr0', type=float, default=2e-2, help="initial learning rate for embeddings")
     parser.add_argument('--lr1', type=float, default=1e-3, help="initial learning rate for networks")
     parser.add_argument('--ckpt', type=str, default='latest')
@@ -24,7 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps', type=int, default=512, help="num steps sampled per ray (only valid when not using --cuda_ray)")
     parser.add_argument('--upsample_steps', type=int, default=0, help="num steps up-sampled per ray (only valid when not using --cuda_ray)")
     parser.add_argument('--max_ray_batch', type=int, default=4096, help="batch size of rays at inference to avoid OOM (only valid when not using --cuda_ray)")
-    parser.add_argument('--l1_reg_weight', type=float, default=4e-5)
+    parser.add_argument('--l1_reg_weight', type=float, default=1e-4)
 
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
@@ -73,7 +74,7 @@ if __name__ == '__main__':
         resolution=[opt.resolution0] * 3,
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=100 if opt.mode == 'blender' else 1,
+        density_scale=25 if opt.mode == 'blender' else 1,
     )
     
     print(model)
@@ -98,16 +99,18 @@ if __name__ == '__main__':
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
 
-            trainer.save_mesh(resolution=256, threshold=0.1)
+            #trainer.save_mesh(resolution=256, threshold=0.1)
     
     else:
 
         optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr0, opt.lr1), betas=(0.9, 0.99), eps=1e-15)
 
-        # need different milestones for GUI/CMD mode.
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 2000] if opt.gui else [100, 200], gamma=0.33)
+        train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
 
-        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint=opt.ckpt, eval_interval=50)
+        # decay to 0.1 * init_lr at last iter step
+        scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
+
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=None, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=[PSNRMeter()], use_checkpoint=opt.ckpt, eval_interval=50)
 
         # calc upsample target resolutions
         upsample_resolutions = (np.round(np.exp(np.linspace(np.log(opt.resolution0), np.log(opt.resolution1), len(opt.upsample_model_steps) + 1)))).astype(np.int32).tolist()[1:]
@@ -115,17 +118,16 @@ if __name__ == '__main__':
         trainer.upsample_resolutions = upsample_resolutions
 
         if opt.gui:
-            train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
             trainer.train_loader = train_loader # attach dataloader to trainer
 
             gui = NeRFGUI(opt, trainer)
             gui.render()
         
         else:
-            train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
             valid_loader = NeRFDataset(opt, device=device, type='val', downscale=2).dataloader()
 
-            trainer.train(train_loader, valid_loader, 300)
+            max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
+            trainer.train(train_loader, valid_loader, max_epoch)
 
             # also test
             test_loader = NeRFDataset(opt, device=device, type='test').dataloader()
@@ -135,4 +137,4 @@ if __name__ == '__main__':
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
 
-            trainer.save_mesh(resolution=256, threshold=0.1)
+            #trainer.save_mesh(resolution=256, threshold=0.1)

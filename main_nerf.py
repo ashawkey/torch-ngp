@@ -17,6 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
 
     ### training options
+    parser.add_argument('--iters', type=int, default=30000, help="training iters")
     parser.add_argument('--lr', type=float, default=1e-2, help="initial learning rate")
     parser.add_argument('--ckpt', type=str, default='latest')
     parser.add_argument('--num_rays', type=int, default=4096, help="num rays sampled per image for each training step")
@@ -100,7 +101,7 @@ if __name__ == '__main__':
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
             
-            trainer.save_mesh(resolution=256, threshold=10)
+            #trainer.save_mesh(resolution=256, threshold=10)
     
     else:
 
@@ -109,23 +110,24 @@ if __name__ == '__main__':
             {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
         ], lr=opt.lr, betas=(0.9, 0.99), eps=1e-15)
 
-        # need different milestones for GUI/CMD mode.
-        scheduler = lambda optimizer: optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1000, 1500, 2000] if opt.gui else [100, 200], gamma=0.33)
+        train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
 
-        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, metrics=[PSNRMeter()], use_checkpoint=opt.ckpt, eval_interval=50)
+        # decay to 0.1 * init_lr at last iter step
+        scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
+
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=[PSNRMeter()], use_checkpoint=opt.ckpt, eval_interval=50)
 
         if opt.gui:
-            train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
             trainer.train_loader = train_loader # attach dataloader to trainer
 
             gui = NeRFGUI(opt, trainer)
             gui.render()
         
         else:
-            train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
             valid_loader = NeRFDataset(opt, device=device, type='val', downscale=2).dataloader()
 
-            trainer.train(train_loader, valid_loader, 300)
+            max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
+            trainer.train(train_loader, valid_loader, max_epoch)
 
             # also test
             test_loader = NeRFDataset(opt, device=device, type='test').dataloader()
@@ -135,4 +137,4 @@ if __name__ == '__main__':
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
             
-            trainer.save_mesh(resolution=256, threshold=10)
+            #trainer.save_mesh(resolution=256, threshold=10)

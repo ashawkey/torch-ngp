@@ -139,19 +139,17 @@ check the `scripts` directory for more provided examples.
 Tested with the default settings on the Lego test dataset. Here the speed refers to the `iterations per second` on a TITAN RTX.
 | Model | PSNR | Train Speed | Test Speed |
 | - | - | - | - |
-| HashNeRF (`fp16 + ff`)               | 32.84  |  22  | 0.54  |
-| HashNeRF (`fp16 + cuda_ray + ff`)    | 32.81  |  80  | 7.0   |
-| TensoRF (`fp16`)                     | 33.81  |  18  | 0.53  |
-| TensoRF (`fp16 + cuda_ray`)          | 33.83  |  46  | 3.4   | 
+| HashNeRF (`-O`)    | 33.30  |  97  | 7.8  |
+| TensoRF (`-O`)     | 34.16  |  43  | 1.4  |
 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implements the linear interpolation mode.
-* For the blender dataest, the default mode in instant-ngp is to load all data (train/val/test) for training. Instead, we only use the specified split to train in CMD mode for easy evaluation. However, for GUI mode, we follow instant-ngp and use all data to train (check `type='all'` for `NeRFDataset`).
 * For TensoRF, we don't implement AABB shrinking and regularizations other than L1.
 
 
 # Update Log
+* 4.30: performance improvement (better lr_scheduler).
 * 4.25: add Tanks&Temples dataset support.
 * 4.18: add some experimental utils for random pose sampling and combined training with CLIP.
 * 4.13: add LLFF dataset support.

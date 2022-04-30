@@ -55,7 +55,7 @@ near_far_from_aabb = _near_far_from_aabb.apply
 class _march_rays_train(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)
-    def forward(ctx, rays_o, rays_d, bound, density_grid, mean_density, nears, fars, step_counter=None, mean_count=-1, perturb=False, align=-1, force_all_rays=False, dt_gamma=0):
+    def forward(ctx, rays_o, rays_d, bound, density_grid, mean_density, nears, fars, step_counter=None, mean_count=-1, perturb=False, align=-1, force_all_rays=False, dt_gamma=0, max_steps=1024):
         ''' march rays to generate points (forward only)
         Args:
             rays_o/d: float, [N, 3]
@@ -68,6 +68,8 @@ class _march_rays_train(Function):
             perturb: bool
             align: int, pad output so its size is dividable by align, set to -1 to disable.
             force_all_rays: bool, ignore step_counter and mean_count, always calculate all rays. Useful if rendering the whole image, instead of some rays.
+            dt_gamma: float, called cone_angle in instant-ngp, exponentially accelerate ray marching if > 0. (very significant effect, but generally lead to worse performance)
+            max_steps: int, max number of sampled points along each ray, also affect min_stepsize.
         Returns:
             xyzs: float, [M, 3], all generated points' coords. (all rays concated, need to use `rays` to extract points belonging to each ray)
             dirs: float, [M, 3], all generated points' view dirs.
@@ -88,7 +90,7 @@ class _march_rays_train(Function):
         C = density_grid.shape[0] # grid cascade
         H = density_grid.shape[1] # grid resolution
 
-        M = N * 1024 # init max points number in total, hardcoded
+        M = N * max_steps # init max points number in total
 
         # running average based on previous epoch (mimic `measured_batch_size_before_compaction` in instant-ngp)
         # It estimate the max points number to enable faster training, but will lead to random ignored rays if underestimated.
@@ -105,7 +107,7 @@ class _march_rays_train(Function):
         if step_counter is None:
             step_counter = torch.zeros(2, dtype=torch.int32, device=rays_o.device) # point counter, ray counter
         
-        _backend.march_rays_train(rays_o, rays_d, density_grid, mean_density, bound, dt_gamma, N, C, H, M, nears, fars, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
+        _backend.march_rays_train(rays_o, rays_d, density_grid, mean_density, bound, dt_gamma, max_steps, N, C, H, M, nears, fars, xyzs, dirs, deltas, rays, step_counter, perturb) # m is the actually used points number
 
         #print(step_counter, M)
 
@@ -187,7 +189,7 @@ composite_rays_train = _composite_rays_train.apply
 class _march_rays(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)
-    def forward(ctx, n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, density_grid, mean_density, near, far, align=-1, perturb=False, dt_gamma=0):
+    def forward(ctx, n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, density_grid, mean_density, near, far, align=-1, perturb=False, dt_gamma=0, max_steps=1024):
         ''' march rays to generate points (forward only, for inference)
         Args:
             n_alive: int, number of alive rays
@@ -201,6 +203,8 @@ class _march_rays(Function):
             nears/fars: float, [N]
             align: int, pad output so its size is dividable by align, set to -1 to disable.
             perturb: bool/int, int > 0 is used as the random seed.
+            dt_gamma: float, called cone_angle in instant-ngp, exponentially accelerate ray marching if > 0. (very significant effect, but generally lead to worse performance)
+            max_steps: int, max number of sampled points along each ray, also affect min_stepsize.
         Returns:
             xyzs: float, [n_alive * n_step, 3], all generated points' coords
             dirs: float, [n_alive * n_step, 3], all generated points' view dirs.
@@ -224,7 +228,7 @@ class _march_rays(Function):
         dirs = torch.zeros(M, 3, dtype=rays_o.dtype, device=rays_o.device)
         deltas = torch.zeros(M, 2, dtype=rays_o.dtype, device=rays_o.device) # 2 vals, one for rgb, one for depth
 
-        _backend.march_rays(n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, dt_gamma, C, H, density_grid, mean_density, near, far, xyzs, dirs, deltas, perturb)
+        _backend.march_rays(n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, bound, dt_gamma, max_steps, C, H, density_grid, mean_density, near, far, xyzs, dirs, deltas, perturb)
 
         return xyzs, dirs, deltas
 

@@ -97,6 +97,9 @@ class NeRFRenderer(nn.Module):
     def density(self, x):
         raise NotImplementedError()
 
+    def color(self, x, d, mask=None, **kwargs):
+        raise NotImplementedError()
+
     def reset_extra_state(self):
         if not self.cuda_ray:
             return 
@@ -451,6 +454,8 @@ class NeRFRenderer(nn.Module):
         self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
         self.mean_density = torch.mean(self.density_grid[valid_mask]).item()
         self.iter_density += 1
+
+        # TODO: adjust (shrink) aabb_train after density_grid is stable ?
 
         ### update step counter
         total_step = min(16, self.local_step)
