@@ -109,8 +109,7 @@ class Trainer(_Trainer):
             if self.global_step in self.opt.upsample_model_steps:
 
                 # shrink 
-                
-
+                self.model.shrink_model()
 
                 # adaptive voxel size from aabb_train
                 n_vox = self.upsample_resolutions.pop(0) ** 3 # n_voxels
@@ -153,6 +152,7 @@ class Trainer(_Trainer):
 
         state = {
             'epoch': self.epoch,
+            'global_step': self.global_step,
             'stats': self.stats,
             'resolution': self.model.resolution, # Different from _Trainer!
         }
@@ -252,6 +252,8 @@ class Trainer(_Trainer):
 
         self.stats = checkpoint_dict['stats']
         self.epoch = checkpoint_dict['epoch']
+        self.global_step = checkpoint_dict['global_step']
+        self.log(f"[INFO] load at epoch {self.epoch}, global step {self.global_step}")
 
         if self.optimizer and  'optimizer' in checkpoint_dict:
             try:

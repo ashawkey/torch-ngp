@@ -76,7 +76,7 @@ class NeRFNetwork(NeRFRenderer):
 
 
     def get_sigma_feat(self, x):
-        # x: [N, 3], in [-1, 1]
+        # x: [N, 3], in [-1, 1] (outliers will be treated as zero due to grid_sample padding mode)
 
         N = x.shape[0]
 
@@ -123,13 +123,13 @@ class NeRFNetwork(NeRFRenderer):
         # x: [N, 3], in [-bound, bound]
         # d: [N, 3], nomalized in [-1, 1]
 
-        # normalize to [-1, 1]
-        x = x / self.bound
+        # normalize to [-1, 1] inside aabb_train
+        x = 2 * (x - self.aabb_train[:3]) / (self.aabb_train[3:] - self.aabb_train[:3]) - 1
 
         # sigma
         sigma_feat = self.get_sigma_feat(x)
         sigma = trunc_exp(sigma_feat)
-        #sigma = F.softplus(sigma_feat - 10)
+        #sigma = F.relu(sigma_feat)
 
         # rgb
         color_feat = self.get_color_feat(x)
@@ -151,12 +151,12 @@ class NeRFNetwork(NeRFRenderer):
     def density(self, x):
         # x: [N, 3], in [-bound, bound]
 
-        # normalize to [-1, 1]
-        x = x / self.bound
+        # normalize to [-1, 1] inside aabb_train
+        x = 2 * (x - self.aabb_train[:3]) / (self.aabb_train[3:] - self.aabb_train[:3]) - 1
 
         sigma_feat = self.get_sigma_feat(x)
         sigma = trunc_exp(sigma_feat)
-        #sigma = F.softplus(sigma_feat - 10)
+        #sigma = F.relu(sigma_feat)
 
         return {
             'sigma': sigma,
@@ -167,8 +167,8 @@ class NeRFNetwork(NeRFRenderer):
         # x: [N, 3] in [-bound, bound]
         # mask: [N,], bool, indicates where we actually needs to compute rgb.
 
-        # normalize to [-1, 1]
-        x = x / self.bound
+        # normalize to [-1, 1] inside aabb_train
+        x = 2 * (x - self.aabb_train[:3]) / (self.aabb_train[3:] - self.aabb_train[:3]) - 1
 
         if mask is not None:
             rgbs = torch.zeros(mask.shape[0], 3, dtype=x.dtype, device=x.device) # [N, 3]
@@ -213,21 +213,55 @@ class NeRFNetwork(NeRFRenderer):
         for i in range(len(self.vec_ids)):
             vec_id = self.vec_ids[i]
             mat_id_0, mat_id_1 = self.mat_ids[i]
-            mat[i] = torch.nn.Parameter(F.interpolate(mat[i].data, size=(resolution[mat_id_1], resolution[mat_id_0]), mode='bilinear', align_corners=True))
-            vec[i] = torch.nn.Parameter(F.interpolate(vec[i].data, size=(resolution[vec_id], 1), mode='bilinear', align_corners=True))
+            mat[i] = nn.Parameter(F.interpolate(mat[i].data, size=(resolution[mat_id_1], resolution[mat_id_0]), mode='bilinear', align_corners=True))
+            vec[i] = nn.Parameter(F.interpolate(vec[i].data, size=(resolution[vec_id], 1), mode='bilinear', align_corners=True))
 
-        return mat, vec
 
     @torch.no_grad()
     def upsample_model(self, resolution):
-        self.sigma_mat, self.sigma_vec = self.upsample_params(self.sigma_mat, self.sigma_vec, resolution)
-        self.color_mat, self.color_vec = self.upsample_params(self.color_mat, self.color_vec, resolution)
+        self.upsample_params(self.sigma_mat, self.sigma_vec, resolution)
+        self.upsample_params(self.color_mat, self.color_vec, resolution)
         self.resolution = resolution
 
     @torch.no_grad()
     def shrink_model(self):
-        pass
+        # shrink aabb_train and the model so it only represents the space inside aabb_train.
 
+        H = self.density_grid.shape[1]
+        half_grid_size = self.bound / H
+        thresh = min(0.01, self.mean_density)
+
+        # get new aabb from the coarsest density grid (TODO: from the finest that covers current aabb?)
+        valid_grid = self.density_grid[self.cascade - 1] > thresh # [H, W, D]
+        valid_pos = torch.nonzero(valid_grid) # [Nz, 3], in [0, H - 1]
+        #plot_pointcloud(valid_pos.detach().cpu().numpy()) # lots of noisy outliers in hashnerf...
+        valid_pos = (2 * valid_pos / (H - 1) - 1) * (self.bound - half_grid_size) # [Nz, 3], in [-b+hgs, b-hgs]
+        min_pos = valid_pos.amin(0) - half_grid_size # [3]
+        max_pos = valid_pos.amax(0) + half_grid_size # [3]
+
+        # shrink model
+        reso = torch.LongTensor(self.resolution).to(self.aabb_train.device)
+        units = (self.aabb_train[3:] - self.aabb_train[:3]) / reso
+        tl = (min_pos - self.aabb_train[:3]) / units
+        br = (max_pos - self.aabb_train[:3]) / units
+        tl = torch.round(tl).long().clamp(min=0)
+        br = torch.minimum(torch.round(br).long(), reso)
+        
+        for i in range(len(self.vec_ids)):
+            vec_id = self.vec_ids[i]
+            mat_id_0, mat_id_1 = self.mat_ids[i]
+
+            self.sigma_vec[i] = nn.Parameter(self.sigma_vec[i].data[..., tl[vec_id]:br[vec_id], :])
+            self.color_vec[i] = nn.Parameter(self.color_vec[i].data[..., tl[vec_id]:br[vec_id], :])
+
+            self.sigma_mat[i] = nn.Parameter(self.sigma_mat[i].data[..., tl[mat_id_1]:br[mat_id_1], tl[mat_id_0]:br[mat_id_0]])
+            self.color_mat[i] = nn.Parameter(self.color_mat[i].data[..., tl[mat_id_1]:br[mat_id_1], tl[mat_id_0]:br[mat_id_0]])
+        
+        self.aabb_train = torch.cat([min_pos, max_pos], dim=0) # [6]
+
+        print(f'[INFO] shrink slice: {tl.cpu().numpy().tolist()} - {br.cpu().numpy().tolist()}')
+        print(f'[INFO] new aabb: {self.aabb_train.cpu().numpy().tolist()}')
+        
 
     # optimizer utils
     def get_params(self, lr1, lr2):

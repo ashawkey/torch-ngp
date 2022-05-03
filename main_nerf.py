@@ -76,7 +76,7 @@ if __name__ == '__main__':
         encoding="hashgrid",
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1 if opt.mode == 'blender' else 1,
+        density_scale=10 if opt.mode == 'blender' else 1,
     )
     
     print(model)
@@ -124,7 +124,7 @@ if __name__ == '__main__':
             gui.render()
         
         else:
-            valid_loader = NeRFDataset(opt, device=device, type='val', downscale=2).dataloader()
+            valid_loader = NeRFDataset(opt, device=device, type='val', downscale=1).dataloader()
 
             max_epoch = np.ceil(opt.iters / len(train_loader)).astype(np.int32)
             trainer.train(train_loader, valid_loader, max_epoch)

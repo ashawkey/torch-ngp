@@ -855,6 +855,7 @@ class Trainer(object):
 
         state = {
             'epoch': self.epoch,
+            'global_step': self.global_step,
             'stats': self.stats,
         }
 
@@ -942,6 +943,8 @@ class Trainer(object):
 
         self.stats = checkpoint_dict['stats']
         self.epoch = checkpoint_dict['epoch']
+        self.global_step = checkpoint_dict['global_step']
+        self.log(f"[INFO] load at epoch {self.epoch}, global step {self.global_step}")
         
         if self.optimizer and  'optimizer' in checkpoint_dict:
             try:

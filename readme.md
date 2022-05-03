@@ -136,16 +136,23 @@ python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF -O --m
 check the `scripts` directory for more provided examples.
 
 # Performance Reference
-Tested with the default settings on the Lego test dataset. Here the speed refers to the `iterations per second` on a TITAN RTX.
+Tested with the default settings on the Lego test dataset. Here the speed refers to the `iterations per second`.
+Unfortunately there is still a large performance gap compared to the original implementation.
+If you are interested in contributing to this repo, you may start from searching `TODO` in the code.
+
 | Model | PSNR | Train Speed | Test Speed |
 | - | - | - | - |
-| HashNeRF (`-O`)    | 33.30  |  97  | 7.8  |
-| TensoRF (`-O`)     | 34.42  |  51  | 2.8  |
+| instant-ngp (paper)               | 36.39  |  -   | -    |
+| instant-ngp (`-O`)                | 33.30  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`)    | 33.97  |  50  | 7.4  |
+| TensoRF (paper)                | 36.46  |  -   | -    |
+| TensoRF (`-O`)                 | 34.86  |  51  | 2.8  |
+| TensoRF (`-O --error_map`)     | 35.67  |  14  | 2.4  |
 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implements the linear interpolation mode.
-* For TensoRF, we don't implement AABB shrinking and regularizations other than L1.
+* For TensoRF, we don't implement regularizations other than L1, and use `trunc_exp` as the density activation instead of `softplus`.
 
 
 # Update Log
