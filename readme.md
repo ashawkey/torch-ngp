@@ -140,7 +140,7 @@ Tested with the default settings on the Lego test dataset. Here the speed refers
 | Model | PSNR | Train Speed | Test Speed |
 | - | - | - | - |
 | HashNeRF (`-O`)    | 33.30  |  97  | 7.8  |
-| TensoRF (`-O`)     | 34.16  |  43  | 1.4  |
+| TensoRF (`-O`)     | 34.42  |  51  | 2.8  |
 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.

@@ -443,8 +443,9 @@ class NeRFRenderer(nn.Module):
                         cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
                         # query density
                         sigmas = self.density(cas_xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
-                        # magic scale from `scalbnf(MIN_CONE_STEPSIZE(), 0)`, check `splat_grid_samples_nerf_max_nearest_neighbor`
-                        sigmas *= self.density_scale * 0.001691
+                        # from `scalbnf(MIN_CONE_STEPSIZE(), 0)`, check `splat_grid_samples_nerf_max_nearest_neighbor`
+                        # scale == 2 * sqrt(3) / 1024
+                        sigmas *= self.density_scale * 0.003383
                         # assign 
                         tmp_grid[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas
         
@@ -455,7 +456,18 @@ class NeRFRenderer(nn.Module):
         self.mean_density = torch.mean(self.density_grid[valid_mask]).item()
         self.iter_density += 1
 
-        # TODO: adjust (shrink) aabb_train after density_grid is stable ?
+        # adjust (shrink) aabb_train by density_grid
+        thresh = min(0.01, self.mean_density)
+        valid_grid = self.density_grid[self.cascade - 1] > thresh # [H, W, D]
+        valid_pos = torch.nonzero(valid_grid) # [Nz, 3], in [0, resolution - 1]
+        #plot_pointcloud(valid_pos.detach().cpu().numpy()) # lots of noisy outliers in hashnerf...
+        half_grid_size = self.bound / resolution
+        valid_pos = (2 * valid_pos / (resolution - 1) - 1) * (self.bound - half_grid_size) # [Nz, 3], in [-b+hgs, b-hgs]
+        min_pos = valid_pos.amin(0) - half_grid_size # [3]
+        max_pos = valid_pos.amax(0) + half_grid_size # [3]
+        self.aabb_train = torch.cat([min_pos, max_pos], dim=0) # [6]
+        #self.aabb_infer = self.aabb_train.clone() # copy to infer aabb too
+        #print(f'[INFO] thresh: {thresh}, valid_pos: {valid_pos.shape}, aabb: {self.aabb_train.cpu().numpy().tolist()}')
 
         ### update step counter
         total_step = min(16, self.local_step)

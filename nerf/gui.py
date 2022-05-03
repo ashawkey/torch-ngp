@@ -67,7 +67,7 @@ class NeRFGUI:
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius, fovy=opt.fovy)
         self.trainer = trainer
         self.debug = debug
-        self.bg_color = None # rendering bg color (TODO)
+        self.bg_color = None
         self.training = False
         self.step = 0 # training step 
 

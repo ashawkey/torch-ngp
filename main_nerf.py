@@ -37,7 +37,7 @@ if __name__ == '__main__':
     # (the default value is for the fox dataset)
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box[-bound, bound]^3")
-    parser.add_argument('--dt_gamma', type=float, default=1/128, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
+    parser.add_argument('--dt_gamma', type=float, default=1/256, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
 
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         encoding="hashgrid",
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=10 if opt.mode == 'blender' else 1,
+        density_scale=1 if opt.mode == 'blender' else 1,
     )
     
     print(model)

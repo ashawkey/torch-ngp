@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from encoding import get_encoder
+from activation import trunc_exp
 from nerf.renderer import NeRFRenderer
 
 
@@ -117,7 +118,7 @@ class NeRFNetwork(NeRFRenderer):
 
         # sigma
         sigma_feat = self.get_sigma_feat(x)
-        sigma = F.relu(sigma_feat, inplace=True)
+        sigma = trunc_exp(sigma_feat)
 
         # rgb
         color_feat = self.get_color_feat(x)
@@ -143,7 +144,7 @@ class NeRFNetwork(NeRFRenderer):
         x = x / self.bound
 
         sigma_feat = self.get_sigma_feat(x)
-        sigma = F.relu(sigma_feat, inplace=True)
+        sigma = trunc_exp(sigma_feat)
 
         return {
             'sigma': sigma,

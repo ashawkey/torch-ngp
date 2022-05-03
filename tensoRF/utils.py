@@ -108,9 +108,18 @@ class Trainer(_Trainer):
             # Different from _Trainer!
             if self.global_step in self.opt.upsample_model_steps:
 
-                reso = self.upsample_resolutions.pop(0)
-                self.log(f"[INFO] upsample model at step {self.global_step} from {self.model.resolution[0]} to {reso}")
-                self.model.upsample_model([reso] * 3)
+                # shrink 
+                
+
+
+                # adaptive voxel size from aabb_train
+                n_vox = self.upsample_resolutions.pop(0) ** 3 # n_voxels
+                aabb = self.model.aabb_train.cpu().numpy()
+                vox_size = np.cbrt(np.prod(aabb[3:] - aabb[:3]) / n_vox)
+                reso = ((aabb[3:] - aabb[:3]) / vox_size).astype(np.int32).tolist()
+                
+                self.log(f"[INFO] upsample model at step {self.global_step} from {self.model.resolution} to {reso}")
+                self.model.upsample_model(reso)
 
                 # reset optimizer since params changed.
                 self.optimizer = self.optimizer_fn(self.model)
