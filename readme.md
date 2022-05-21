@@ -156,6 +156,7 @@ If you are interested in contributing to this repo, you may start from searching
 
 
 # Update Log
+* 5.21: expose more parameters to control, implement packbits.
 * 4.30: performance improvement (better lr_scheduler).
 * 4.25: add Tanks&Temples dataset support.
 * 4.18: add some experimental utils for random pose sampling and combined training with CLIP.
@@ -187,6 +188,18 @@ If you are interested in contributing to this repo, you may start from searching
 * 1.30: fixed atomicAdd() to use __half2 in HashGrid Encoder's backward, now the training speed with fp16 is as expected!
 * 1.29: finished an experimental binding of fully-fused MLP. replace SHEncoder with a CUDA implementation.
 * 1.26: add fp16 support for HashGrid Encoder (requires CUDA >= 10 and GPU ARCH >= 70 for now...).
+
+# Citation
+
+If you find this work useful, a citation will be appreciated via:
+```
+@misc{torch-ngp,
+    Author = {Jiaxiang Tang},
+    Year = {2022},
+    Note = {https://github.com/ashawkey/torch-ngp},
+    Title = {Torch-ngp: a PyTorch implementation of instant-ngp}
+}
+```
 
 
 # Acknowledgement

@@ -63,12 +63,17 @@ class NeRFRenderer(nn.Module):
                  bound=1,
                  cuda_ray=False,
                  density_scale=1, # scale up deltas (or sigmas), to make the density grid more sharp. larger value than 1 usually improves performance.
+                 min_near=0.2,
+                 density_thresh=0.01,
                  ):
         super().__init__()
 
         self.bound = bound
         self.cascade = 1 + math.ceil(math.log2(bound))
+        self.grid_size = 128
         self.density_scale = density_scale
+        self.min_near = min_near
+        self.density_thresh = density_thresh
 
         # prepare aabb with a 6D tensor (xmin, ymin, zmin, xmax, ymax, zmax)
         # NOTE: aabb (can be rectangular) is only used to generate points, we still rely on bound (always cubic) to calculate density grid and hashing.
@@ -81,8 +86,10 @@ class NeRFRenderer(nn.Module):
         self.cuda_ray = cuda_ray
         if cuda_ray:
             # density grid
-            density_grid = torch.zeros([self.cascade] + [128] * 3) # [CAS, H, H, H]
+            density_grid = torch.zeros([self.cascade] + [self.grid_size] * 3) # [CAS, H, H, H]
+            density_bitfield = torch.zeros(self.cascade * self.grid_size ** 3 // 8, dtype=torch.uint8) # [CAS * H * H * H // 8]
             self.register_buffer('density_grid', density_grid)
+            self.register_buffer('density_bitfield', density_bitfield)
             self.mean_density = 0
             self.iter_density = 0
             # step counter
@@ -128,7 +135,7 @@ class NeRFRenderer(nn.Module):
         aabb = self.aabb_train if self.training else self.aabb_infer
 
         # sample steps
-        nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, aabb)
+        nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, aabb, self.min_near)
         nears.unsqueeze_(-1)
         fars.unsqueeze_(-1)
 
@@ -254,7 +261,7 @@ class NeRFRenderer(nn.Module):
             bg_color = 1
 
         # pre-calculate near far
-        nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train if self.training else self.aabb_infer)
+        nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train if self.training else self.aabb_infer, self.min_near)
 
         if self.training:
             # setup counter
@@ -262,7 +269,7 @@ class NeRFRenderer(nn.Module):
             counter.zero_() # set to 0
             self.local_step += 1
 
-            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, counter, self.mean_count, perturb, 128, force_all_rays, dt_gamma)
+            xyzs, dirs, deltas, rays = raymarching.march_rays_train(rays_o, rays_d, self.bound, self.density_bitfield, self.cascade, self.grid_size, nears, fars, counter, self.mean_count, perturb, 128, force_all_rays, dt_gamma)
 
             #plot_pointcloud(xyzs.reshape(-1, 3).detach().cpu().numpy())
             
@@ -293,7 +300,6 @@ class NeRFRenderer(nn.Module):
             rays_alive = torch.zeros(2, n_alive, dtype=torch.int32, device=device) # 2 is used to loop old/new
             rays_t = torch.zeros(2, n_alive, dtype=dtype, device=device)
 
-
             step = 0
             i = 0
             while step < 1024: # hard coded max step
@@ -315,7 +321,7 @@ class NeRFRenderer(nn.Module):
                 # decide compact_steps
                 n_step = max(min(N // n_alive, 8), 1)
 
-                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_grid, self.mean_density, nears, fars, 128, perturb, dt_gamma)
+                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_bitfield, self.cascade, self.grid_size, nears, fars, 128, perturb, dt_gamma)
 
                 #sigmas, rgbs = self(xyzs, dirs)
                 density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
@@ -455,6 +461,10 @@ class NeRFRenderer(nn.Module):
         self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
         self.mean_density = torch.mean(self.density_grid[valid_mask]).item()
         self.iter_density += 1
+
+        # convert to bitfield
+        density_thresh = min(self.mean_density, self.density_thresh)
+        self.density_bitfield = raymarching.packbits(self.density_grid, density_thresh, self.density_bitfield)
 
         ### update step counter
         total_step = min(16, self.local_step)
