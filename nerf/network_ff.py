@@ -132,3 +132,18 @@ class NeRFNetwork(NeRFRenderer):
         #starter.record()
 
         return rgbs
+
+    # optimizer utils
+    def get_params(self, lr):
+
+        params = [
+            {'params': self.encoder.parameters(), 'lr': lr},
+            {'params': self.sigma_net.parameters(), 'lr': lr},
+            {'params': self.encoder_dir.parameters(), 'lr': lr},
+            {'params': self.color_net.parameters(), 'lr': lr}, 
+        ]
+        if self.bg_radius > 0:
+            params.append({'params': self.encoder_bg.parameters(), 'lr': lr})
+            params.append({'params': self.bg_net.parameters(), 'lr': lr})
+        
+        return params
