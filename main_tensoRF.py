@@ -43,6 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--dt_gamma', type=float, default=1/256, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
     parser.add_argument('--min_near', type=float, default=0.2, help="minimum near distance for camera")
     parser.add_argument('--density_thresh', type=float, default=0.01, help="threshold for density grid to be occupied")
+    parser.add_argument('--bg_radius', type=float, default=-1, help="if positive, use a background model at sphere(bg_radius)")
 
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
@@ -68,6 +69,7 @@ if __name__ == '__main__':
     seed_everything(opt.seed)
 
     if opt.cp:
+        assert opt.bg_radius <= 0, "background model is not implemented for --cp"
         from tensoRF.network_cp import NeRFNetwork
     else:
         from tensoRF.network import NeRFNetwork
@@ -79,6 +81,7 @@ if __name__ == '__main__':
         density_scale=1 if opt.mode == 'blender' else 1,
         min_near=opt.min_near,
         density_thresh=opt.density_thresh,
+        bg_radius=opt.bg_radius,
     )
     
     print(model)

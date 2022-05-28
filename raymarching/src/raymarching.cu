@@ -19,6 +19,8 @@
 
 
 inline constexpr __device__ float SQRT3() { return 1.73205080757f; }
+inline constexpr __device__ float PI() { return 3.141592653589793f; }
+inline constexpr __device__ float RPI() { return 0.3183098861837907f; }
 
 
 template <typename T>
@@ -117,6 +119,59 @@ void near_far_from_aabb(at::Tensor rays_o, at::Tensor rays_d, at::Tensor aabb, c
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "near_far_from_aabb", ([&] {
         kernel_near_far_from_aabb<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), aabb.data_ptr<scalar_t>(), N, min_near, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>());
+    }));
+}
+
+
+// rays_o/d: [N, 3]
+// radius: float
+// coords: [N, 2]
+template <typename scalar_t>
+__global__ void kernel_polar_from_ray(
+    const scalar_t * __restrict__ rays_o,
+    const scalar_t * __restrict__ rays_d,
+    const float radius,
+    const uint32_t N,
+    scalar_t * coords
+) {
+    // parallel per ray
+    const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
+    if (n >= N) return;
+
+    // locate
+    rays_o += n * 3;
+    rays_d += n * 3;
+    coords += n * 2;
+
+    const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
+    const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
+    const float rdx = 1 / dx, rdy = 1 / dy, rdz = 1 / dz;
+
+    // solve t from || o + td || = radius
+    const float A = dx * dx + dy * dy + dz * dz;
+    const float B = ox * dx + oy * dy + oz * dz; // in fact B / 2
+    const float C = ox * ox + oy * oy + oz * oz - radius * radius;
+
+    const float t = (- B + sqrtf(B * B - A * C)) / A; // always use the larger solution (positive)
+
+    // solve theta, phi (assume y is the up axis)
+    const float x = ox + t * dx, y = oy + t * dy, z = oz + t * dz;
+    const float theta = atan2(sqrtf(x * x + z * z), y); // [0, PI)
+    const float phi = atan2(z, x); // [-PI, PI)
+
+    // normalize to [-1, 1]
+    coords[0] = 2 * theta * RPI() - 1;
+    coords[1] = phi * RPI();
+}
+
+
+void polar_from_ray(at::Tensor rays_o, at::Tensor rays_d, const float radius, const uint32_t N, at::Tensor coords) {
+
+    static constexpr uint32_t N_THREAD = 256;
+
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
+    rays_o.scalar_type(), "polar_from_ray", ([&] {
+        kernel_polar_from_ray<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), radius, N, coords.data_ptr<scalar_t>());
     }));
 }
 

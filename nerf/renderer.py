@@ -65,6 +65,7 @@ class NeRFRenderer(nn.Module):
                  density_scale=1, # scale up deltas (or sigmas), to make the density grid more sharp. larger value than 1 usually improves performance.
                  min_near=0.2,
                  density_thresh=0.01,
+                 bg_radius=-1,
                  ):
         super().__init__()
 
@@ -74,6 +75,7 @@ class NeRFRenderer(nn.Module):
         self.density_scale = density_scale
         self.min_near = min_near
         self.density_thresh = density_thresh
+        self.bg_radius = bg_radius # radius of the background sphere.
 
         # prepare aabb with a 6D tensor (xmin, ymin, zmin, xmax, ymax, zmax)
         # NOTE: aabb (can be rectangular) is only used to generate points, we still rely on bound (always cubic) to calculate density grid and hashing.
@@ -227,7 +229,11 @@ class NeRFRenderer(nn.Module):
         image = torch.sum(weights.unsqueeze(-1) * rgbs, dim=-2) # [N, 3], in [0, 1]
 
         # mix background color
-        if bg_color is None:
+        if self.bg_radius > 0:
+            # use the bg model to calculate bg_color
+            polar = raymarching.polar_from_ray(rays_o, rays_d, self.bg_radius) # [N, 2] in [-1, 1]
+            bg_color = self.background(polar, rays_d.reshape(-1, 3)) # [N, 3]
+        elif bg_color is None:
             bg_color = 1
             
         image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
@@ -256,9 +262,6 @@ class NeRFRenderer(nn.Module):
 
         N = rays_o.shape[0] # N = B * N, in fact
         device = rays_o.device
-
-        if bg_color is None:
-            bg_color = 1
 
         # pre-calculate near far
         nears, fars = raymarching.near_far_from_aabb(rays_o, rays_d, self.aabb_train if self.training else self.aabb_infer, self.min_near)
@@ -335,6 +338,14 @@ class NeRFRenderer(nn.Module):
 
                 step += n_step
                 i += 1
+
+        # mix background color
+        if self.bg_radius > 0:
+            # use the bg model to calculate bg_color
+            polar = raymarching.polar_from_ray(rays_o, rays_d, self.bg_radius) # [N, 2] in [-1, 1]
+            bg_color = self.background(polar, rays_d) # [N, 3]
+        elif bg_color is None:
+            bg_color = 1
 
         image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
         image = image.view(*prefix, 3)

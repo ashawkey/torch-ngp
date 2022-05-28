@@ -1,9 +1,9 @@
 # torch-ngp
 
-A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
-
-
-**A GUI for training/visualizing NeRF is also available!**
+This repository contains:
+* A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
+* A pytorch implementation of [TensoRF](https://github.com/apchenstu/TensoRF), as described in [_TensoRF: Tensorial Radiance Fields_](https://arxiv.org/abs/2203.09517).
+* A GUI for training/visualizing NeRF!
 
 https://user-images.githubusercontent.com/25863658/155265815-c608254f-2f00-4664-a39d-e00eae51ca59.mp4
 
@@ -59,7 +59,7 @@ Please download and put them under `./data`.
 First time running will take some time to compile the CUDA extensions.
 
 ```bash
-### HashNeRF
+### Instant-ngp 
 # train with different backbones (with slower pytorch ray marching)
 # for the colmap dataset, the default dataset setting `--mode colmap --bound 2 --scale 0.33` is used.
 python main_nerf.py data/fox --workspace trial_nerf # fp32 mode
@@ -67,23 +67,26 @@ python main_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch 
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --tcnn # fp16 mode + official tinycudann's encoder & MLP
 
-# test mode
-python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --test
-
 # use CUDA to accelerate ray marching (much more faster!)
-python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --cuda_ray # fp16 mode + FFMLP + cuda raymarching
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --cuda_ray # fp16 mode + cuda raymarching
 
 # preload data into GPU, accelerate training but use more GPU memory.
-python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --preload
-
-# construct an error_map for each image, and sample rays based on previous training error (experimental)
-python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff --preload --error_map
+python main_nerf.py data/fox --workspace trial_nerf --fp16 --preload
 
 # one for all: -O means --fp16 --cuda_ray --preload, which usually gives the best results balanced on speed & performance.
 python main_nerf.py data/fox --workspace trial_nerf -O
 
+# test mode
+python main_nerf.py data/fox --workspace trial_nerf -O --test
+
+# construct an error_map for each image, and sample rays based on the training error (slow down training but get better performance with the same number of training steps)
+python main_nerf.py data/fox --workspace trial_nerf -O --error_map
+
+# use a background model (e.g., a sphere with radius = 32), can supress noises for real-world 360 dataset
+python main_nerf.py data/firekeeper --workspace trial_nerf -O --bg_radius 32
+
 # start a GUI for NeRF training & visualization
-# always use with `--fp16 --ff/tcnn --cuda_ray` for an acceptable framerate!
+# always use with `--fp16 --cuda_ray` for an acceptable framerate!
 python main_nerf.py data/fox --workspace trial_nerf -O --gui
 
 # test mode for GUI
@@ -124,10 +127,11 @@ python main_sdf.py data/armadillo.obj --workspace trial_sdf
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff
 python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --tcnn
-python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --ff --test
+
+python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --test
 
 ### TensoRF
-# almost the same as HashNeRF, just replace the main script.
+# almost the same as Instant-ngp, just replace the main script.
 python main_tensoRF.py data/fox --workspace trial_tensoRF -O
 python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
 
@@ -149,6 +153,20 @@ If you are interested in contributing to this repo, you may start from searching
 | TensoRF (`-O`)                 | 34.86  |  51  | 2.8  |
 | TensoRF (`-O --error_map`)     | 35.67  |  14  | 2.4  |
 
+# Tips
+**Q**: How to choose the network backbone? 
+
+**A**: The `-O` flag which uses pytorch's native mixed precision is suitable for most cases. I don't find very significant improvement for `--tcnn` and `--ff`, and they require extra building. Also, some new features may only be available for the default `-O` mode.
+
+**Q**: CUDA Out Of Memory for my dataset.
+
+**A**: You could try to turn off `--preload` which loads all images in to GPU for acceleration (if use `-O`, change it to `--fp16 --cuda_ray`). Another solution is to manually set `downscale` in `NeRFDataset` to lower the image resolution.
+
+**Q**: How to adjust `bound` and `scale`? 
+
+**A**: You could start with a large `bound` (e.g., 16) or a small `scale` (e.g., 0.3) to make sure the object falls into the bounding box. The GUI mode can be used to interactively shrink the `bound` to find the suitable value. Uncommenting [this line](https://github.com/ashawkey/torch-ngp/blob/main/nerf/provider.py#L219) will visualize the camera poses, and some good examples can be found in [this issue](https://github.com/ashawkey/torch-ngp/issues/59).
+
+
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
 * For the hashgrid encoder, this repo only implements the linear interpolation mode.
@@ -156,6 +174,8 @@ If you are interested in contributing to this repo, you may start from searching
 
 
 # Update Log
+* 5.28: add a background model (set bg_radius > 0), which can suppress noises for real-world 360 datasets. An example for the [firekeeper](https://drive.google.com/file/d/19C0K6_crJ5A9ftHijUmJysxmY-G4DMzq/view?usp=sharing) dataset:
+![bg_model](./assets/bg_model.jpg)
 * 5.21: expose more parameters to control, implement packbits.
 * 4.30: performance improvement (better lr_scheduler).
 * 4.25: add Tanks&Temples dataset support.

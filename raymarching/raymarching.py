@@ -48,6 +48,38 @@ class _near_far_from_aabb(Function):
 
 near_far_from_aabb = _near_far_from_aabb.apply
 
+
+class _polar_from_ray(Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.float32)
+    def forward(ctx, rays_o, rays_d, radius):
+        ''' polar_from_ray, CUDA implementation
+        get polar coordinate on the background sphere from rays.
+        Assume rays_o are inside the Sphere(radius).
+        Args:
+            rays_o: [N, 3]
+            rays_d: [N, 3]
+            radius: scalar, float
+        Return:
+            coords: [N, 2], in [-1, 1], theta and phi on a sphere.
+        '''
+        if not rays_o.is_cuda: rays_o = rays_o.cuda()
+        if not rays_d.is_cuda: rays_d = rays_d.cuda()
+
+        rays_o = rays_o.contiguous().view(-1, 3)
+        rays_d = rays_d.contiguous().view(-1, 3)
+
+        N = rays_o.shape[0] # num rays
+
+        coords = torch.empty(N, 2, dtype=rays_o.dtype, device=rays_o.device)
+
+        _backend.polar_from_ray(rays_o, rays_d, radius, N, coords)
+
+        return coords
+
+polar_from_ray = _polar_from_ray.apply
+
+
 # TODO: only pack to bits is not enough, should use the morton code to encode position...
 class _packbits(Function):
     @staticmethod

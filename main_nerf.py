@@ -40,6 +40,7 @@ if __name__ == '__main__':
     parser.add_argument('--dt_gamma', type=float, default=1/256, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
     parser.add_argument('--min_near', type=float, default=0.2, help="minimum near distance for camera")
     parser.add_argument('--density_thresh', type=float, default=0.01, help="threshold for density grid to be occupied")
+    parser.add_argument('--bg_radius', type=float, default=-1, help="if positive, use a background model at sphere(bg_radius)")
 
     ### GUI options
     parser.add_argument('--gui', action='store_true', help="start a GUI")
@@ -63,9 +64,11 @@ if __name__ == '__main__':
 
     if opt.ff:
         opt.fp16 = True
+        assert opt.bg_radius <= 0, "background model is not implemented for --ff"
         from nerf.network_ff import NeRFNetwork
     elif opt.tcnn:
         opt.fp16 = True
+        assert opt.bg_radius <= 0, "background model is not implemented for --tcnn"
         from nerf.network_tcnn import NeRFNetwork
     else:
         from nerf.network import NeRFNetwork
@@ -81,6 +84,7 @@ if __name__ == '__main__':
         density_scale=10 if opt.mode == 'blender' else 1,
         min_near=opt.min_near,
         density_thresh=opt.density_thresh,
+        bg_radius=opt.bg_radius,
     )
     
     print(model)
@@ -109,10 +113,7 @@ if __name__ == '__main__':
     
     else:
 
-        optimizer = lambda model: torch.optim.Adam([
-            {'name': 'encoding', 'params': list(model.encoder.parameters())},
-            {'name': 'net', 'params': list(model.sigma_net.parameters()) + list(model.color_net.parameters()), 'weight_decay': 1e-6},
-        ], lr=opt.lr, betas=(0.9, 0.99), eps=1e-15)
+        optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15)
 
         train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
 

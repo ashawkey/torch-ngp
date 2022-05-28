@@ -14,9 +14,13 @@ class NeRFNetwork(NeRFRenderer):
                  resolution=[128] * 3,
                  sigma_rank=[16] * 3,
                  color_rank=[48] * 3,
+                 bg_resolution=[512, 512],
+                 bg_rank=8,
                  color_feat_dim=27,
                  num_layers=3,
                  hidden_dim=128,
+                 num_layers_bg=2,
+                 hidden_dim_bg=64,
                  bound=1,
                  **kwargs
                  ):
@@ -61,6 +65,35 @@ class NeRFNetwork(NeRFRenderer):
 
         self.color_net = nn.ModuleList(color_net)
 
+        # background model
+        if self.bg_radius > 0:
+            self.num_layers_bg = num_layers_bg        
+            self.hidden_dim_bg = hidden_dim_bg
+            
+            # TODO: just use a matrix to model the background, no need of factorization.
+            #self.encoder_bg, self.in_dim_bg = get_encoder('hashgrid', input_dim=2, num_levels=4, log2_hashmap_size=18) # much smaller hashgrid 
+            self.bg_resolution = bg_resolution
+            self.bg_rank = bg_rank
+            self.bg_mat = nn.Parameter(0.1 * torch.randn((1, bg_rank, bg_resolution[0], bg_resolution[1]))) # [1, R, H, W]
+            
+            bg_net =  []
+            for l in range(num_layers_bg):
+                if l == 0:
+                    in_dim = bg_rank + enc_dim_dir
+                else:
+                    in_dim = hidden_dim_bg
+                
+                if l == num_layers_bg - 1:
+                    out_dim = 3 # 3 rgb
+                else:
+                    out_dim = hidden_dim_bg
+                
+                bg_net.append(nn.Linear(in_dim, out_dim, bias=False))
+
+            self.bg_net = nn.ModuleList(bg_net)
+        else:
+            self.bg_net = None
+
 
     def init_one_svd(self, n_component, resolution, scale=0.1):
 
@@ -69,10 +102,10 @@ class NeRFNetwork(NeRFRenderer):
         for i in range(len(self.vec_ids)):
             vec_id = self.vec_ids[i]
             mat_id_0, mat_id_1 = self.mat_ids[i]
-            mat.append(torch.nn.Parameter(scale * torch.randn((1, n_component[i], resolution[mat_id_1], resolution[mat_id_0])))) # [1, R, H, W]
-            vec.append(torch.nn.Parameter(scale * torch.randn((1, n_component[i], resolution[vec_id], 1)))) # [1, R, D, 1] (fake 2d to use grid_sample)
+            mat.append(nn.Parameter(scale * torch.randn((1, n_component[i], resolution[mat_id_1], resolution[mat_id_0])))) # [1, R, H, W]
+            vec.append(nn.Parameter(scale * torch.randn((1, n_component[i], resolution[vec_id], 1)))) # [1, R, D, 1] (fake 2d to use grid_sample)
 
-        return torch.nn.ParameterList(mat), torch.nn.ParameterList(vec)
+        return nn.ParameterList(mat), nn.ParameterList(vec)
 
 
     def get_sigma_feat(self, x):
@@ -162,6 +195,26 @@ class NeRFNetwork(NeRFRenderer):
             'sigma': sigma,
         }
 
+    def background(self, x, d):
+        # x: [N, 2] in [-1, 1]
+
+        N = x.shape[0]
+
+        h = F.grid_sample(self.bg_mat, x.view(1, N, 1, 2), align_corners=True).view(-1, N).T.contiguous() # [R, N] --> [N, R]
+        d = self.encoder_dir(d)
+
+        h = torch.cat([d, h], dim=-1)
+        for l in range(self.num_layers_bg):
+            h = self.bg_net[l](h)
+            if l != self.num_layers_bg - 1:
+                h = F.relu(h, inplace=True)
+        
+        # sigmoid activation for rgb
+        rgbs = torch.sigmoid(h)
+
+        return rgbs
+
+
     # allow masked inference
     def color(self, x, d, mask=None, **kwargs):
         # x: [N, 3] in [-bound, bound]
@@ -229,7 +282,7 @@ class NeRFNetwork(NeRFRenderer):
 
         H = self.density_grid.shape[1]
         half_grid_size = self.bound / H
-        thresh = min(0.01, self.mean_density)
+        thresh = min(self.density_thresh, self.mean_density)
 
         # get new aabb from the coarsest density grid (TODO: from the finest that covers current aabb?)
         valid_grid = self.density_grid[self.cascade - 1] > thresh # [H, W, D]
@@ -265,7 +318,7 @@ class NeRFNetwork(NeRFRenderer):
 
     # optimizer utils
     def get_params(self, lr1, lr2):
-        return [
+        params = [
             {'params': self.sigma_mat, 'lr': lr1}, 
             {'params': self.sigma_vec, 'lr': lr1},
             {'params': self.color_mat, 'lr': lr1}, 
@@ -273,4 +326,8 @@ class NeRFNetwork(NeRFRenderer):
             {'params': self.basis_mat.parameters(), 'lr': lr2},
             {'params': self.color_net.parameters(), 'lr': lr2},
         ]
+        if self.bg_radius > 0:
+            params.append({'params': self.bg_mat, 'lr': lr1})
+            params.append({'params': self.bg_net.parameters(), 'lr': lr2})
+        return params
         

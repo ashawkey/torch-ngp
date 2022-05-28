@@ -388,12 +388,14 @@ class Trainer(object):
 
         B, N, C = images.shape
     
-        # train in srgb color space
         if C == 4:
-            # train with random background color if using alpha mixing
-            #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
-            #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
-            bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
+            # train with random background color if not using a bg model.
+            if self.bg_radius <= 0:
+                #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
+                #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
+                bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
+            else:
+                bg_color = 1
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
             bg_color = None
