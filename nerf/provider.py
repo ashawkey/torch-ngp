@@ -95,7 +95,6 @@ class NeRFDataset:
         self.downscale = downscale
         self.root_path = opt.path
         self.mode = opt.mode # colmap, blender
-        self.color_space = opt.color_space # linear, srgb
         self.preload = opt.preload # preload data into GPU
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
@@ -204,9 +203,6 @@ class NeRFDataset:
         self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
         if self.images is not None:
             self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
-
-        if self.color_space == 'linear':
-            self.images[..., :3] = srgb_to_linear(self.images[..., :3])
         
         # calculate mean radius of all camera poses
         self.radius = self.poses[:, :3, 3].norm(dim=-1).mean(0).item()
@@ -227,7 +223,12 @@ class NeRFDataset:
         if self.preload:
             self.poses = self.poses.to(self.device)
             if self.images is not None:
-                self.images = self.images.to(torch.half if self.fp16 else torch.float).to(self.device)
+                # TODO: linear use pow, but pow for half is only available for torch >= 1.10 ?
+                if self.fp16 and self.opt.color_space != 'linear':
+                    dtype = torch.half
+                else:
+                    dtype = torch.float
+                self.images = self.images.to(dtype).to(self.device)
             if self.error_map is not None:
                 self.error_map = self.error_map.to(self.device)
 

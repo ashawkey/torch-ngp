@@ -389,6 +389,9 @@ class Trainer(object):
         images = data['images'] # [B, N, 3/4]
 
         B, N, C = images.shape
+
+        if self.opt.color_space == 'linear':
+            images[..., :3] = srgb_to_linear(images[..., :3])
     
         if self.model.bg_radius > 0:
             bg_color = 1
@@ -443,6 +446,9 @@ class Trainer(object):
         rays_d = data['rays_d'] # [B, N, 3]
         images = data['images'] # [B, H, W, 3/4]
         B, H, W, C = images.shape
+
+        if self.opt.color_space == 'linear':
+            images[..., :3] = srgb_to_linear(images[..., :3])
 
         # eval with fixed background color
         bg_color = 1

@@ -174,7 +174,7 @@ If you are interested in contributing to this repo, you may start from searching
 
 
 # Update Log
-* 5.29: fix a random bg color issue, add color_space option, better results for blender dataset, but current implmentation is very slow.
+* 5.29: fix a random bg color issue, add color_space option, better results for blender dataset.
 * 5.28: add a background model (set bg_radius > 0), which can suppress noises for real-world 360 datasets. An example for the [firekeeper](https://drive.google.com/file/d/19C0K6_crJ5A9ftHijUmJysxmY-G4DMzq/view?usp=sharing) dataset:
 ![bg_model](./assets/bg_model.jpg)
 * 5.21: expose more parameters to control, implement packbits.
