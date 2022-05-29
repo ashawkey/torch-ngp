@@ -92,13 +92,13 @@ python main_nerf.py data/fox --workspace trial_nerf -O --gui
 # test mode for GUI
 python main_nerf.py data/fox --workspace trial_nerf -O --gui --test
 
-# for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8 --dt_gamma 0`
+# for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear`
 # --mode specifies dataset type ('blender' or 'colmap')
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
 # --dt_gamma controls the adaptive ray marching speed, set to 0 turns it off.
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear --gui
 
 # for the LLFF dataset, you should first convert it to nerf-compatible format:
 python llff2nerf.py data/nerf_llff_data/fern # by default it use full-resolution images, and write `transforms.json` to the folder
@@ -174,6 +174,7 @@ If you are interested in contributing to this repo, you may start from searching
 
 
 # Update Log
+* 5.29: fix a random bg color issue, add color_space option, better results for blender dataset, but current implmentation is very slow.
 * 5.28: add a background model (set bg_radius > 0), which can suppress noises for real-world 360 datasets. An example for the [firekeeper](https://drive.google.com/file/d/19C0K6_crJ5A9ftHijUmJysxmY-G4DMzq/view?usp=sharing) dataset:
 ![bg_model](./assets/bg_model.jpg)
 * 5.21: expose more parameters to control, implement packbits.

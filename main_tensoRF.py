@@ -36,11 +36,12 @@ if __name__ == '__main__':
 
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
+    parser.add_argument('--color_space', type=str, default='srgb', help="Color space, supports (linear, srgb)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     # (the default value is for the fox dataset)
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
     parser.add_argument('--scale', type=float, default=0.33, help="scale camera location into box[-bound, bound]^3")
-    parser.add_argument('--dt_gamma', type=float, default=1/256, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
+    parser.add_argument('--dt_gamma', type=float, default=1/128, help="dt_gamma (>=0) for adaptive ray marching. set to 0 to disable, >0 to accelerate rendering (but usually with worse quality)")
     parser.add_argument('--min_near', type=float, default=0.2, help="minimum near distance for camera")
     parser.add_argument('--density_thresh', type=float, default=0.01, help="threshold for density grid to be occupied")
     parser.add_argument('--bg_radius', type=float, default=-1, help="if positive, use a background model at sphere(bg_radius)")
@@ -78,7 +79,7 @@ if __name__ == '__main__':
         resolution=[opt.resolution0] * 3,
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1 if opt.mode == 'blender' else 1,
+        density_scale=1,
         min_near=opt.min_near,
         density_thresh=opt.density_thresh,
         bg_radius=opt.bg_radius,

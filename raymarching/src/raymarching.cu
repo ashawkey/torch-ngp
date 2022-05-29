@@ -18,7 +18,8 @@
 #define CHECK_IS_FLOATING(x) TORCH_CHECK(x.scalar_type() == at::ScalarType::Float || x.scalar_type() == at::ScalarType::Half || x.scalar_type() == at::ScalarType::Double, #x " must be a floating tensor")
 
 
-inline constexpr __device__ float SQRT3() { return 1.73205080757f; }
+inline constexpr __device__ float SQRT3() { return 1.7320508075688772f; }
+inline constexpr __device__ float RSQRT3() { return 0.5773502691896258f; }
 inline constexpr __device__ float PI() { return 3.141592653589793f; }
 inline constexpr __device__ float RPI() { return 0.3183098861837907f; }
 
@@ -44,6 +45,13 @@ inline __device__ int mip_from_pos(const float x, const float y, const float z, 
     const float mx = fmaxf(fabsf(x), fmaxf(fabs(y), fabs(z)));
     int exponent;
     frexpf(mx, &exponent); // [0, 0.5) --> -1, [0.5, 1) --> 0, [1, 2) --> 1, [2, 4) --> 2, ...
+    return fminf(max_cascade - 1, fmaxf(0, exponent));
+}
+
+inline __device__ int mip_from_dt(const float dt, const float H, const float max_cascade) {
+    const float mx = dt * H * 0.5;
+    int exponent;
+    frexpf(mx, &exponent);
     return fminf(max_cascade - 1, fmaxf(0, exponent));
 }
 
@@ -256,6 +264,7 @@ __global__ void kernel_march_rays_train(
     const float far = fars[n];
 
     const float dt_min = 2 * SQRT3() / max_steps;
+    const float dt_max = 2 * SQRT3() * (1 << (C - 1)) / H;
     
     float t0 = near;
     
@@ -276,12 +285,13 @@ __global__ void kernel_march_rays_train(
         const float y = clamp(oy + t * dy, -bound, bound);
         const float z = clamp(oz + t * dz, -bound, bound);
 
+        const float dt = clamp(t * dt_gamma, dt_min, dt_max);
+
         // get mip level
-        // TODO: check why using mip_from_dt...
-        const int level = mip_from_pos(x, y, z, C); // range in [0, C - 1]
-        const float mip_bound = fminf(exp2f((float)level), bound);
+        const int level = max(mip_from_pos(x, y, z, C), mip_from_dt(dt, H, C)); // range in [0, C - 1]
+
+        const float mip_bound = fminf((float)(1 << level), bound);
         const float mip_rbound = 1 / mip_bound;
-        const float dt_max = 2 * mip_bound / H; // dt_max is dependent on the current mip level
         
         // convert to nearest grid position
         const int nx = clamp(0.5 * (x * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
@@ -296,7 +306,6 @@ __global__ void kernel_march_rays_train(
 
         if (occ) {
             num_steps++;
-            const float dt = clamp(t * dt_gamma, dt_min, dt_max);
             t += dt;
         // else, skip a large step (basically skip a voxel grid)
         } else {
@@ -307,8 +316,7 @@ __global__ void kernel_march_rays_train(
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
             do { 
-                const float dt = clamp(t * dt_gamma, dt_min, dt_max);
-                t += dt; 
+                t += clamp(t * dt_gamma, dt_min, dt_max);
             } while (t < tt);
         }
     }
@@ -344,12 +352,13 @@ __global__ void kernel_march_rays_train(
         const float y = clamp(oy + t * dy, -bound, bound);
         const float z = clamp(oz + t * dz, -bound, bound);
 
+        const float dt = clamp(t * dt_gamma, dt_min, dt_max);
+
         // get mip level
-        // TODO: check why using mip_from_dt...
-        const int level = mip_from_pos(x, y, z, C); // range in [0, C - 1]
-        const float mip_bound = fminf(exp2f((float)level), bound);
+        const int level = max(mip_from_pos(x, y, z, C), mip_from_dt(dt, H, C)); // range in [0, C - 1]
+
+        const float mip_bound = fminf((float)(1 << level), bound);
         const float mip_rbound = 1 / mip_bound;
-        const float dt_max = 2 * mip_bound / H; // dt_max is dependent on the current mip level
         
         // convert to nearest grid position
         const int nx = clamp(0.5 * (x * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
@@ -369,7 +378,6 @@ __global__ void kernel_march_rays_train(
             dirs[0] = dx;
             dirs[1] = dy;
             dirs[2] = dz;
-            const float dt = clamp(t * dt_gamma, dt_min, dt_max);
             t += dt;
             deltas[0] = dt;
             deltas[1] = t - last_t; // used to calc depth
@@ -387,8 +395,7 @@ __global__ void kernel_march_rays_train(
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
             do { 
-                const float dt = clamp(t * dt_gamma, dt_min, dt_max);
-                t += dt; 
+                t += clamp(t * dt_gamma, dt_min, dt_max); 
             } while (t < tt);
         }
     }
@@ -648,6 +655,7 @@ __global__ void kernel_march_rays(
     const float near = nears[index], far = fars[index];
 
     const float dt_min = 2 * SQRT3() / max_steps;
+    const float dt_max = 2 * SQRT3() * (1 << (C - 1)) / H;
 
     // march for n_step steps, record points
     uint32_t step = 0;
@@ -666,12 +674,13 @@ __global__ void kernel_march_rays(
         const float y = clamp(oy + t * dy, -bound, bound);
         const float z = clamp(oz + t * dz, -bound, bound);
 
+        const float dt = clamp(t * dt_gamma, dt_min, dt_max);
+
         // get mip level
-        // TODO: check why using mip_from_dt...
-        const int level = mip_from_pos(x, y, z, C); // range in [0, C - 1]
-        const float mip_bound = fminf(exp2f((float)level), bound);
+        const int level = max(mip_from_pos(x, y, z, C), mip_from_dt(dt, H, C)); // range in [0, C - 1]
+
+        const float mip_bound = fminf((float)(1 << level), bound);
         const float mip_rbound = 1 / mip_bound;
-        const float dt_max = 2 * mip_bound / H;
         
         // convert to nearest grid position
         const int nx = clamp(0.5 * (x * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
@@ -691,7 +700,6 @@ __global__ void kernel_march_rays(
             dirs[1] = dy;
             dirs[2] = dz;
             // calc dt
-            const float dt = clamp(t * dt_gamma, dt_min, dt_max);
             t += dt;
             deltas[0] = dt;
             deltas[1] = t - last_t; // used to calc depth
@@ -711,8 +719,7 @@ __global__ void kernel_march_rays(
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
             do { 
-                const float dt = clamp(t * dt_gamma, dt_min, dt_max);
-                t += dt; 
+                t += clamp(t * dt_gamma, dt_min, dt_max);
             } while (t < tt);
         }
     }

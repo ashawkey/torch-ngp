@@ -37,6 +37,14 @@ def custom_meshgrid(*args):
         return torch.meshgrid(*args, indexing='ij')
 
 
+def linear_to_srgb(x):
+    return np.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
+
+
+def srgb_to_linear(x):
+    return np.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
+
 @torch.cuda.amp.autocast(enabled=False)
 def get_rays(poses, intrinsics, H, W, N=-1, error_map=None):
     ''' get rays
@@ -113,6 +121,7 @@ def seed_everything(seed):
     #torch.backends.cudnn.deterministic = True
     #torch.backends.cudnn.benchmark = True
 
+
 def torch_vis_2d(x, renormalize=False):
     # x: [3, H, W] or [1, H, W] or [H, W]
     import matplotlib.pyplot as plt
@@ -134,15 +143,6 @@ def torch_vis_2d(x, renormalize=False):
 
     plt.imshow(x)
     plt.show()
-
-@torch.jit.script
-def linear_to_srgb(x):
-    return torch.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
-
-
-@torch.jit.script
-def srgb_to_linear(x):
-    return torch.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
 
 
 def extract_fields(bound_min, bound_max, resolution, query_func, S=128):
@@ -388,17 +388,17 @@ class Trainer(object):
 
         B, N, C = images.shape
     
+        if self.model.bg_radius > 0:
+            bg_color = 1
+        # train with random background color if not using a bg model.
+        else:
+            #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
+            #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
+            bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
+
         if C == 4:
-            # train with random background color if not using a bg model.
-            if self.bg_radius <= 0:
-                #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
-                #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.
-                bg_color = torch.rand_like(images[..., :3]) # [N, 3], pixel-wise random.
-            else:
-                bg_color = 1
             gt_rgb = images[..., :3] * images[..., 3:] + bg_color * (1 - images[..., 3:])
         else:
-            bg_color = None
             gt_rgb = images
 
         outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
@@ -559,8 +559,14 @@ class Trainer(object):
 
                 #self.log(f"[INFO] saving test image to {path}")
 
-                cv2.imwrite(path, cv2.cvtColor((preds[0].detach().cpu().numpy() * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
-                cv2.imwrite(path_depth, (preds_depth[0].detach().cpu().numpy() * 255).astype(np.uint8))
+                pred = preds[0].detach().cpu().numpy()
+                pred_depth = preds_depth[0].detach().cpu().numpy()
+
+                if self.opt.color_space == 'linear':
+                    pred = linear_to_srgb(pred)
+
+                cv2.imwrite(path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+                cv2.imwrite(path_depth, (pred_depth * 255).astype(np.uint8))
 
                 pbar.update(loader.batch_size)
 
@@ -590,7 +596,7 @@ class Trainer(object):
                 self.error_map = train_loader._data.error_map
 
             # update grid every 16 steps
-            if self.model.cuda_ray and self.global_step % 16 == 0:
+            if self.model.cuda_ray and self.global_step % 100 == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
             
@@ -668,9 +674,15 @@ class Trainer(object):
             preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='nearest').permute(0, 2, 3, 1).contiguous()
             preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='nearest').squeeze(1)
 
+        pred = preds[0].detach().cpu().numpy()
+        pred_depth = preds_depth[0].detach().cpu().numpy()
+
+        if self.opt.color_space == 'linear':
+            pred = linear_to_srgb(pred)
+
         outputs = {
-            'image': preds[0].detach().cpu().numpy(),
-            'depth': preds_depth[0].detach().cpu().numpy(),
+            'image': pred,
+            'depth': pred_depth,
         }
 
         return outputs
@@ -823,9 +835,16 @@ class Trainer(object):
 
                     #self.log(f"==> Saving validation image to {save_path}")
                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                    cv2.imwrite(save_path, cv2.cvtColor((preds[0].detach().cpu().numpy() * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
-                    cv2.imwrite(save_path_depth, (preds_depth[0].detach().cpu().numpy() * 255).astype(np.uint8))
-                    #cv2.imwrite(save_path_gt, cv2.cvtColor((truths[0].detach().cpu().numpy() * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+
+                    pred = preds[0].detach().cpu().numpy()
+                    pred_depth = preds_depth[0].detach().cpu().numpy()
+                    
+                    if self.opt.color_space == 'linear':
+                        pred = linear_to_srgb(pred)
+
+                    cv2.imwrite(save_path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(save_path_depth, (pred_depth * 255).astype(np.uint8))
+                    #cv2.imwrite(save_path_gt, cv2.cvtColor((linear_to_srgb(truths[0].detach().cpu().numpy()) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
 
                     pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                     pbar.update(loader.batch_size)

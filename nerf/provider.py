@@ -11,7 +11,7 @@ import trimesh
 import torch
 from torch.utils.data import DataLoader
 
-from .utils import get_rays
+from .utils import get_rays, srgb_to_linear
 
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
@@ -46,7 +46,6 @@ def visualize_poses(poses, size=0.1):
         objects.append(segs)
 
     trimesh.Scene(objects).show()
-
 
 
 def rand_poses(size, device, radius=1, theta_range=[np.pi/3, 2*np.pi/3], phi_range=[0, 2*np.pi]):
@@ -95,7 +94,8 @@ class NeRFDataset:
         self.type = type # train, val, test
         self.downscale = downscale
         self.root_path = opt.path
-        self.mode = opt.mode # colmap, blender, llff
+        self.mode = opt.mode # colmap, blender
+        self.color_space = opt.color_space # linear, srgb
         self.preload = opt.preload # preload data into GPU
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
@@ -197,6 +197,9 @@ class NeRFDataset:
 
                 image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
                 image = image.astype(np.float32) / 255 # [H, W, 3/4]
+
+                if self.color_space == 'linear':
+                    image[..., :3] = srgb_to_linear(image[..., :3])
 
                 self.poses.append(pose)
                 self.images.append(image)
