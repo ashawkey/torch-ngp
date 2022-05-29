@@ -37,12 +37,14 @@ def custom_meshgrid(*args):
         return torch.meshgrid(*args, indexing='ij')
 
 
+@torch.jit.script
 def linear_to_srgb(x):
-    return np.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
+    return torch.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
 
 
+@torch.jit.script
 def srgb_to_linear(x):
-    return np.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+    return torch.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
 
 
 @torch.cuda.amp.autocast(enabled=False)
@@ -559,11 +561,11 @@ class Trainer(object):
 
                 #self.log(f"[INFO] saving test image to {path}")
 
+                if self.opt.color_space == 'linear':
+                    preds = linear_to_srgb(preds)
+
                 pred = preds[0].detach().cpu().numpy()
                 pred_depth = preds_depth[0].detach().cpu().numpy()
-
-                if self.opt.color_space == 'linear':
-                    pred = linear_to_srgb(pred)
 
                 cv2.imwrite(path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
                 cv2.imwrite(path_depth, (pred_depth * 255).astype(np.uint8))
@@ -674,11 +676,11 @@ class Trainer(object):
             preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='nearest').permute(0, 2, 3, 1).contiguous()
             preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='nearest').squeeze(1)
 
+        if self.opt.color_space == 'linear':
+            preds = linear_to_srgb(preds)
+
         pred = preds[0].detach().cpu().numpy()
         pred_depth = preds_depth[0].detach().cpu().numpy()
-
-        if self.opt.color_space == 'linear':
-            pred = linear_to_srgb(pred)
 
         outputs = {
             'image': pred,
@@ -836,12 +838,12 @@ class Trainer(object):
                     #self.log(f"==> Saving validation image to {save_path}")
                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
+                    if self.opt.color_space == 'linear':
+                        preds = linear_to_srgb(preds)
+
                     pred = preds[0].detach().cpu().numpy()
                     pred_depth = preds_depth[0].detach().cpu().numpy()
                     
-                    if self.opt.color_space == 'linear':
-                        pred = linear_to_srgb(pred)
-
                     cv2.imwrite(save_path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
                     cv2.imwrite(save_path_depth, (pred_depth * 255).astype(np.uint8))
                     #cv2.imwrite(save_path_gt, cv2.cvtColor((linear_to_srgb(truths[0].detach().cpu().numpy()) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))

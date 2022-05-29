@@ -33,7 +33,7 @@ if __name__ == '__main__':
 
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
-    parser.add_argument('--color_space', type=str, default='srgb', help="Color space, supports (linear, srgb)")
+    parser.add_argument('--color_space', type=str, default='linear', help="Color space, supports (linear, srgb)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     # (the default value is for the fox dataset)
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")

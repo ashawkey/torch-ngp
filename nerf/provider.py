@@ -198,15 +198,15 @@ class NeRFDataset:
                 image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
                 image = image.astype(np.float32) / 255 # [H, W, 3/4]
 
-                if self.color_space == 'linear':
-                    image[..., :3] = srgb_to_linear(image[..., :3])
-
                 self.poses.append(pose)
                 self.images.append(image)
             
         self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
         if self.images is not None:
             self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
+
+        if self.color_space == 'linear':
+            self.images[..., :3] = srgb_to_linear(self.images[..., :3])
         
         # calculate mean radius of all camera poses
         self.radius = self.poses[:, :3, 3].norm(dim=-1).mean(0).item()
