@@ -315,7 +315,7 @@ class Trainer(object):
             self.log_ptr = open(self.log_path, "a+")
 
             self.ckpt_path = os.path.join(self.workspace, 'checkpoints')
-            self.best_path = f"{self.ckpt_path}/{self.name}.pth.tar"
+            self.best_path = f"{self.ckpt_path}/{self.name}.pth"
             os.makedirs(self.ckpt_path, exist_ok=True)
             
         self.log(f'[INFO] Trainer: {self.name} | {self.time_stamp} | {self.device} | {"fp16" if self.fp16 else "fp32"} | {self.workspace}')
@@ -411,6 +411,10 @@ class Trainer(object):
         pred_rgb = outputs['image']
 
         loss = self.criterion(pred_rgb, gt_rgb).mean(-1) # [B, N, 3] --> [B, N]
+
+        # special case for CCNeRF's rank-residual training
+        if len(loss.shape) == 3: # [K, B, N]
+            loss = loss.mean(0)
 
         # update error_map
         if self.error_map is not None:
@@ -534,15 +538,18 @@ class Trainer(object):
         if self.use_tensorboardX and self.local_rank == 0:
             self.writer.close()
 
-    def evaluate(self, loader):
+    def evaluate(self, loader, name=None):
         self.use_tensorboardX, use_tensorboardX = False, self.use_tensorboardX
-        self.evaluate_one_epoch(loader)
+        self.evaluate_one_epoch(loader, name)
         self.use_tensorboardX = use_tensorboardX
 
-    def test(self, loader, save_path=None):
+    def test(self, loader, save_path=None, name=None):
 
         if save_path is None:
             save_path = os.path.join(self.workspace, 'results')
+
+        if name is None:
+            name = f'{self.name}_ep{self.epoch:04d}.pth'
 
         os.makedirs(save_path, exist_ok=True)
         
@@ -562,8 +569,8 @@ class Trainer(object):
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     preds, preds_depth = self.test_step(data)                
                 
-                path = os.path.join(save_path, f'{i:04d}.png')
-                path_depth = os.path.join(save_path, f'{i:04d}_depth.png')
+                path = os.path.join(save_path, f'{name}_{i:04d}.png')
+                path_depth = os.path.join(save_path, f'{name}_{i:04d}_depth.png')
 
                 #self.log(f"[INFO] saving test image to {path}")
 
@@ -779,8 +786,11 @@ class Trainer(object):
         self.log(f"==> Finished Epoch {self.epoch}.")
 
 
-    def evaluate_one_epoch(self, loader):
+    def evaluate_one_epoch(self, loader, name=None):
         self.log(f"++> Evaluate at epoch {self.epoch} ...")
+
+        if name is None:
+            name = f'{self.name}_ep{self.epoch:04d}.pth'
 
         total_loss = 0
         if self.local_rank == 0:
@@ -837,9 +847,9 @@ class Trainer(object):
                         metric.update(preds, truths)
 
                     # save image
-                    save_path = os.path.join(self.workspace, 'validation', f'{self.name}_{self.epoch:04d}_{self.local_step:04d}.png')
-                    save_path_depth = os.path.join(self.workspace, 'validation', f'{self.name}_{self.epoch:04d}_{self.local_step:04d}_depth.png')
-                    #save_path_gt = os.path.join(self.workspace, 'validation', f'{self.name}_{self.epoch:04d}_{self.local_step:04d}_gt.png')
+                    save_path = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}.png')
+                    save_path_depth = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_depth.png')
+                    #save_path_gt = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_gt.png')
 
                     #self.log(f"==> Saving validation image to {save_path}")
                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -880,7 +890,10 @@ class Trainer(object):
 
         self.log(f"++> Evaluate epoch {self.epoch} Finished.")
 
-    def save_checkpoint(self, full=False, best=False):
+    def save_checkpoint(self, name=None, full=False, best=False, remove_old=True):
+
+        if name is None:
+            name = f'{self.name}_ep{self.epoch:04d}.pth'
 
         state = {
             'epoch': self.epoch,
@@ -903,14 +916,15 @@ class Trainer(object):
 
             state['model'] = self.model.state_dict()
 
-            file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}.pth.tar"
+            file_path = f"{self.ckpt_path}/{name}.pth"
 
-            self.stats["checkpoints"].append(file_path)
+            if remove_old:
+                self.stats["checkpoints"].append(file_path)
 
-            if len(self.stats["checkpoints"]) > self.max_keep_ckpt:
-                old_ckpt = self.stats["checkpoints"].pop(0)
-                if os.path.exists(old_ckpt):
-                    os.remove(old_ckpt)
+                if len(self.stats["checkpoints"]) > self.max_keep_ckpt:
+                    old_ckpt = self.stats["checkpoints"].pop(0)
+                    if os.path.exists(old_ckpt):
+                        os.remove(old_ckpt)
 
             torch.save(state, file_path)
 
@@ -936,7 +950,7 @@ class Trainer(object):
             
     def load_checkpoint(self, checkpoint=None, model_only=False):
         if checkpoint is None:
-            checkpoint_list = sorted(glob.glob(f'{self.ckpt_path}/{self.name}_ep*.pth.tar'))
+            checkpoint_list = sorted(glob.glob(f'{self.ckpt_path}/{self.name}_ep*.pth'))
             if checkpoint_list:
                 checkpoint = checkpoint_list[-1]
                 self.log(f"[INFO] Latest checkpoint is {checkpoint}")

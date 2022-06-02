@@ -29,7 +29,7 @@ if __name__ == '__main__':
 
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
-    parser.add_argument('--cp', action='store_true', help="use TensorCP instead of TensorVMSplit")
+    parser.add_argument('--cp', action='store_true', help="use TensorCP")
     parser.add_argument('--resolution0', type=int, default=128)
     parser.add_argument('--resolution1', type=int, default=300)
     parser.add_argument("--upsample_model_steps", type=int, action="append", default=[2000, 3000, 4000, 5500, 7000])
@@ -93,7 +93,7 @@ if __name__ == '__main__':
 
     if opt.test:
 
-        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint='latest')
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint=opt.ckpt)
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer)

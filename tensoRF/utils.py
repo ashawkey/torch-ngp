@@ -148,7 +148,10 @@ class Trainer(_Trainer):
         self.log(f"==> Finished Epoch {self.epoch}.")
 
 
-    def save_checkpoint(self, full=False, best=False):
+    def save_checkpoint(self, name=None, full=False, best=False, remove_old=True):
+
+        if name is None:
+            name = f'{self.name}_ep{self.epoch:04d}.pth'
 
         state = {
             'epoch': self.epoch,
@@ -172,14 +175,15 @@ class Trainer(_Trainer):
 
             state['model'] = self.model.state_dict()
 
-            file_path = f"{self.ckpt_path}/{self.name}_ep{self.epoch:04d}.pth.tar"
+            file_path = f"{self.ckpt_path}/{name}.pth"
 
-            self.stats["checkpoints"].append(file_path)
+            if remove_old:
+                self.stats["checkpoints"].append(file_path)
 
-            if len(self.stats["checkpoints"]) > self.max_keep_ckpt:
-                old_ckpt = self.stats["checkpoints"].pop(0)
-                if os.path.exists(old_ckpt):
-                    os.remove(old_ckpt)
+                if len(self.stats["checkpoints"]) > self.max_keep_ckpt:
+                    old_ckpt = self.stats["checkpoints"].pop(0)
+                    if os.path.exists(old_ckpt):
+                        os.remove(old_ckpt)
 
             torch.save(state, file_path)
 
@@ -205,7 +209,7 @@ class Trainer(_Trainer):
             
     def load_checkpoint(self, checkpoint=None, model_only=False):
         if checkpoint is None:
-            checkpoint_list = sorted(glob.glob(f'{self.ckpt_path}/{self.name}_ep*.pth.tar'))
+            checkpoint_list = sorted(glob.glob(f'{self.ckpt_path}/{self.name}_ep*.pth'))
             if checkpoint_list:
                 checkpoint = checkpoint_list[-1]
                 self.log(f"[INFO] Latest checkpoint is {checkpoint}")

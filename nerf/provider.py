@@ -100,7 +100,7 @@ class NeRFDataset:
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
         self.fp16 = opt.fp16 # if preload, load into fp16.
 
-        self.training = self.type in ['train', 'all']
+        self.training = self.type in ['train', 'all', 'trainval']
         self.num_rays = self.opt.num_rays if self.training else -1
 
         self.rand_pose = opt.rand_pose
@@ -121,6 +121,13 @@ class NeRFDataset:
                             transform = tmp_transform
                         else:
                             transform['frames'].extend(tmp_transform['frames'])
+            # load train and val split
+            elif type == 'trainval':
+                with open(os.path.join(self.root_path, f'transforms_train.json'), 'r') as f:
+                    transform = json.load(f)
+                with open(os.path.join(self.root_path, f'transforms_val.json'), 'r') as f:
+                    transform_val = json.load(f)
+                transform['frames'].extend(transform_val['frames'])
             # only load one specified split
             else:
                 with open(os.path.join(self.root_path, f'transforms_{type}.json'), 'r') as f:
@@ -209,7 +216,7 @@ class NeRFDataset:
         #print(f'[INFO] dataset camera poses: radius = {self.radius:.4f}, bound = {self.bound}')
 
         # initialize error_map
-        if type == 'train' and self.opt.error_map:
+        if self.training and self.opt.error_map:
             self.error_map = torch.ones([self.images.shape[0], 128 * 128], dtype=torch.float) # [B, 128 * 128], flattened for easy indexing, fixed resolution...
         else:
             self.error_map = None
