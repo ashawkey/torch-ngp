@@ -80,7 +80,52 @@ class _polar_from_ray(Function):
 polar_from_ray = _polar_from_ray.apply
 
 
-# TODO: only pack to bits is not enough, should use the morton code to encode position...
+class _morton3D(Function):
+    @staticmethod
+    def forward(ctx, coords):
+        ''' morton3D, CUDA implementation
+        Args:
+            coords: [N, 3], int32, in [0, 128) (for some reason there is no uint32 tensor in torch...) 
+            TODO: check if the coord range is valid! (current 128 is safe)
+        Returns:
+            indices: [N], int32, in [0, 128^3)
+            
+        '''
+        if not coords.is_cuda: coords = coords.cuda()
+        
+        N = coords.shape[0]
+
+        indices = torch.empty(N, dtype=torch.int32, device=coords.device)
+        
+        _backend.morton3D(coords, N, indices)
+
+        return indices
+
+morton3D = _morton3D.apply
+
+class _morton3D_invert(Function):
+    @staticmethod
+    def forward(ctx, indices):
+        ''' morton3D_invert, CUDA implementation
+        Args:
+            indices: [N], int32, in [0, 128^3)
+        Returns:
+            coords: [N, 3], int32, in [0, 128)
+            
+        '''
+        if not indices.is_cuda: indices = indices.cuda()
+        
+        N = indices.shape[0]
+
+        coords = torch.empty(N, 3, dtype=torch.int32, device=indices.device)
+        
+        _backend.morton3D_invert(indices, N, coords)
+
+        return coords
+
+morton3D_invert = _morton3D_invert.apply
+
+
 class _packbits(Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)
@@ -88,17 +133,17 @@ class _packbits(Function):
         ''' packbits, CUDA implementation
         Pack up the density grid into a bit field to accelerate ray marching.
         Args:
-            grid: float, [C, H, H, H], assume H % 2 == 0
+            grid: float, [C, H * H * H], assume H % 2 == 0
             thresh: float, threshold
         Returns:
-            bitfield: uint8, [C, H*H*H/8]
+            bitfield: uint8, [C, H * H * H / 8]
         '''
         if not grid.is_cuda: grid = grid.cuda()
         grid = grid.contiguous()
 
         C = grid.shape[0]
-        H = grid.shape[1]
-        N = C * (H ** 3) // 8
+        H3 = grid.shape[1]
+        N = C * H3 // 8
 
         if bitfield is None:
             bitfield = torch.empty(N, dtype=torch.uint8, device=grid.device)

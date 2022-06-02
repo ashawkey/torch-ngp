@@ -88,7 +88,7 @@ class NeRFRenderer(nn.Module):
         self.cuda_ray = cuda_ray
         if cuda_ray:
             # density grid
-            density_grid = torch.zeros([self.cascade] + [self.grid_size] * 3) # [CAS, H, H, H]
+            density_grid = torch.zeros([self.cascade, self.grid_size ** 3]) # [CAS, H * H * H]
             density_bitfield = torch.zeros(self.cascade * self.grid_size ** 3 // 8, dtype=torch.uint8) # [CAS * H * H * H // 8]
             self.register_buffer('density_grid', density_grid)
             self.register_buffer('density_bitfield', density_bitfield)
@@ -393,29 +393,30 @@ class NeRFRenderer(nn.Module):
         B = poses.shape[0]
         
         fx, fy, cx, cy = intrinsic
-    
-        resolution = self.density_grid.shape[1]
         
-        X = torch.linspace(-1, 1, resolution).split(S)
-        Y = torch.linspace(-1, 1, resolution).split(S)
-        Z = torch.linspace(-1, 1, resolution).split(S)
+        X = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
+        Y = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
+        Z = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
 
         count = torch.zeros_like(self.density_grid)
         poses = poses.to(count.device)
 
         # 5-level loop, forgive me...
-        for xi, xs in enumerate(X):
-            for yi, ys in enumerate(Y):
-                for zi, zs in enumerate(Z):
-                    lx, ly, lz = len(xs), len(ys), len(zs)
+
+        for xs in X:
+            for ys in Y:
+                for zs in Z:
+                    
                     # construct points
                     xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                    world_xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1).unsqueeze(0).to(count.device) # [1, N, 3]
+                    coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3], in [0, 128)
+                    indices = raymarching.morton3D(coords).long() # [N]
+                    world_xyzs = (2 * coords.float() / (self.grid_size - 1) - 1).unsqueeze(0) # [1, N, 3] in [-1, 1]
 
                     # cascading
                     for cas in range(self.cascade):
                         bound = min(2 ** cas, self.bound)
-                        half_grid_size = bound / resolution
+                        half_grid_size = bound / self.grid_size
                         # scale to current cascade's resolution
                         cas_world_xyzs = world_xyzs * (bound - half_grid_size)
 
@@ -432,10 +433,10 @@ class NeRFRenderer(nn.Module):
                             mask_z = cam_xyzs[:, :, 2] > 0 # [S, N]
                             mask_x = torch.abs(cam_xyzs[:, :, 0]) < cx / fx * cam_xyzs[:, :, 2] + half_grid_size * 2
                             mask_y = torch.abs(cam_xyzs[:, :, 1]) < cy / fy * cam_xyzs[:, :, 2] + half_grid_size * 2
-                            mask = (mask_z & mask_x & mask_y).sum(0).reshape(lx, ly, lz) # [N] --> [lx, ly, lz]
+                            mask = (mask_z & mask_x & mask_y).sum(0).reshape(-1) # [N]
 
                             # update count 
-                            count[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] += mask
+                            count[cas, indices] += mask
                             head += S
     
         # mark untrained grid as -1
@@ -451,7 +452,6 @@ class NeRFRenderer(nn.Module):
             return 
         
         ### update density grid
-        resolution = self.density_grid.shape[1]
 
         # TODO: random sample coordinates after a warm up, instead of always uniformly query all cascades!
         # TODO: cast to bit mask to accelerate.
@@ -460,32 +460,34 @@ class NeRFRenderer(nn.Module):
 
         tmp_grid = torch.zeros_like(self.density_grid)
 
-        X = torch.linspace(-1, 1, resolution).split(S)
-        Y = torch.linspace(-1, 1, resolution).split(S)
-        Z = torch.linspace(-1, 1, resolution).split(S)
-        for xi, xs in enumerate(X):
-            for yi, ys in enumerate(Y):
-                for zi, zs in enumerate(Z):
-                    lx, ly, lz = len(xs), len(ys), len(zs)
+        X = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
+        Y = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
+        Z = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
+        for xs in X:
+            for ys in Y:
+                for zs in Z:
+                    
                     # construct points
                     xx, yy, zz = custom_meshgrid(xs, ys, zs)
-                    xyzs = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3], in [-1, 1]
+                    coords = torch.cat([xx.reshape(-1, 1), yy.reshape(-1, 1), zz.reshape(-1, 1)], dim=-1) # [N, 3], in [0, 128)
+                    indices = raymarching.morton3D(coords).long() # [N]
+                    xyzs = 2 * coords.float() / (self.grid_size - 1) - 1 # [N, 3] in [-1, 1]
 
                     # cascading
                     for cas in range(self.cascade):
                         bound = min(2 ** cas, self.bound)
-                        half_grid_size = bound / resolution
+                        half_grid_size = bound / self.grid_size
                         # scale to current cascade's resolution
                         cas_xyzs = xyzs * (bound - half_grid_size)
                         # add noise in [-hgs, hgs]
                         cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
                         # query density
-                        sigmas = self.density(cas_xyzs.to(tmp_grid.device))['sigma'].reshape(lx, ly, lz).detach()
+                        sigmas = self.density(cas_xyzs)['sigma'].reshape(-1).detach()
                         # from `scalbnf(MIN_CONE_STEPSIZE(), 0)`, check `splat_grid_samples_nerf_max_nearest_neighbor`
                         # scale == 2 * sqrt(3) / 1024
                         sigmas *= self.density_scale * 0.003383
                         # assign 
-                        tmp_grid[cas, xi * S: xi * S + lx, yi * S: yi * S + ly, zi * S: zi * S + lz] = sigmas
+                        tmp_grid[cas, indices] = sigmas
         
         
         # ema update

@@ -25,7 +25,7 @@ inline constexpr __device__ float RPI() { return 0.3183098861837907f; }
 
 
 template <typename T>
-__host__ __device__ T div_round_up(T val, T divisor) {
+inline __host__ __device__ T div_round_up(T val, T divisor) {
     return (val + divisor - 1) / divisor;
 }
 
@@ -53,6 +53,33 @@ inline __device__ int mip_from_dt(const float dt, const float H, const float max
     int exponent;
     frexpf(mx, &exponent);
     return fminf(max_cascade - 1, fmaxf(0, exponent));
+}
+
+inline __host__ __device__ uint32_t __expand_bits(uint32_t v)
+{
+	v = (v * 0x00010001u) & 0xFF0000FFu;
+	v = (v * 0x00000101u) & 0x0F00F00Fu;
+	v = (v * 0x00000011u) & 0xC30C30C3u;
+	v = (v * 0x00000005u) & 0x49249249u;
+	return v;
+}
+
+inline __host__ __device__ uint32_t __morton3D(uint32_t x, uint32_t y, uint32_t z)
+{
+	uint32_t xx = __expand_bits(x);
+	uint32_t yy = __expand_bits(y);
+	uint32_t zz = __expand_bits(z);
+	return xx | (yy << 1) | (zz << 2);
+}
+
+inline __host__ __device__ uint32_t __morton3D_invert(uint32_t x)
+{
+	x = x & 0x49249249;
+	x = (x | (x >> 2)) & 0xc30c30c3;
+	x = (x | (x >> 4)) & 0x0f00f00f;
+	x = (x | (x >> 8)) & 0xff0000ff;
+	x = (x | (x >> 16)) & 0x0000ffff;
+	return x;
 }
 
 
@@ -184,6 +211,57 @@ void polar_from_ray(at::Tensor rays_o, at::Tensor rays_d, const float radius, co
 }
 
 
+// coords: int32, [N, 3]
+// indices: int32, [N]
+__global__ void kernel_morton3D(
+    const int * __restrict__ coords,
+    const uint32_t N,
+    int * indices
+) {
+    // parallel
+    const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
+    if (n >= N) return;
+
+    // locate
+    coords += n * 3;
+    indices[n] = __morton3D(coords[0], coords[1], coords[2]);
+}
+
+
+void morton3D(at::Tensor coords, const uint32_t N, at::Tensor indices) {
+    static constexpr uint32_t N_THREAD = 256;
+    kernel_morton3D<<<div_round_up(N, N_THREAD), N_THREAD>>>(coords.data_ptr<int>(), N, indices.data_ptr<int>());
+}
+
+
+// indices: int32, [N]
+// coords: int32, [N, 3]
+__global__ void kernel_morton3D_invert(
+    const int * __restrict__ indices,
+    const uint32_t N,
+    int * coords
+) {
+    // parallel
+    const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
+    if (n >= N) return;
+
+    // locate
+    coords += n * 3;
+
+    const int ind = indices[n];
+
+    coords[0] = __morton3D_invert(ind >> 0);
+    coords[1] = __morton3D_invert(ind >> 1);
+    coords[2] = __morton3D_invert(ind >> 2);
+}
+
+
+void morton3D_invert(at::Tensor indices, const uint32_t N, at::Tensor coords) {
+    static constexpr uint32_t N_THREAD = 256;
+    kernel_morton3D_invert<<<div_round_up(N, N_THREAD), N_THREAD>>>(indices.data_ptr<int>(), N, coords.data_ptr<int>());
+}
+
+
 // grid: float, [C, H, H, H]
 // N: int, C * H * H * H / 8
 // density_thresh: float
@@ -195,7 +273,7 @@ __global__ void kernel_packbits(
     const float density_thresh,
     uint8_t * bitfield
 ) {
-    // parallel per ray
+    // parallel per byte
     const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
     if (n >= N) return;
 
@@ -298,7 +376,7 @@ __global__ void kernel_march_rays_train(
         const int ny = clamp(0.5 * (y * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
         const int nz = clamp(0.5 * (z * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
 
-        const uint32_t index = level * H * H * H + nx * H * H + ny * H + nz;
+        const uint32_t index = level * H * H * H + __morton3D(nx, ny, nz);
         const bool occ = grid[index / 8] & (1 << (index % 8));
 
         // if occpuied, advance a small step, and write to output
@@ -366,7 +444,7 @@ __global__ void kernel_march_rays_train(
         const int nz = clamp(0.5 * (z * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
 
         // query grid
-        const uint32_t index = level * H * H * H + nx * H * H + ny * H + nz;
+        const uint32_t index = level * H * H * H + __morton3D(nx, ny, nz);
         const bool occ = grid[index / 8] & (1 << (index % 8));
 
         // if occpuied, advance a small step, and write to output
@@ -687,7 +765,7 @@ __global__ void kernel_march_rays(
         const int ny = clamp(0.5 * (y * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
         const int nz = clamp(0.5 * (z * mip_rbound + 1) * H, 0.0f, (float)(H - 1));
 
-        const uint32_t index = level * H * H * H + nx * H * H + ny * H + nz;
+        const uint32_t index = level * H * H * H + __morton3D(nx, ny, nz);
         const bool occ = grid[index / 8] & (1 << (index % 8));
 
         // if occpuied, advance a small step, and write to output
