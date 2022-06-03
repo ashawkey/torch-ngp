@@ -454,7 +454,6 @@ class NeRFRenderer(nn.Module):
         ### update density grid
 
         # TODO: random sample coordinates after a warm up, instead of always uniformly query all cascades!
-        # TODO: cast to bit mask to accelerate.
         # TODO: check `bitfield_max_pool`, should apply max pool across consequent cascades! (this is a must if using random sampling...)
         # too difficult in pytorch...
 
@@ -463,6 +462,7 @@ class NeRFRenderer(nn.Module):
         X = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
         Y = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
         Z = torch.arange(self.grid_size, dtype=torch.int32, device=self.density_grid.device).split(S)
+
         for xs in X:
             for ys in Y:
                 for zs in Z:

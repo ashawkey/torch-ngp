@@ -146,7 +146,7 @@ class NeRFDataset:
         
         # read images
         frames = transform["frames"]
-        frames = sorted(frames, key=lambda d: d['file_path'])    
+        #frames = sorted(frames, key=lambda d: d['file_path']) # why do I sort...
         
         # for colmap, manually interpolate a test set.
         if self.mode == 'colmap' and type == 'test':
@@ -174,7 +174,7 @@ class NeRFDataset:
                     frames = frames[1:]
                 elif type == 'val':
                     frames = frames[:1]
-                # else 'all': use all frames
+                # else 'all' or 'trainval' : use all frames
             
             self.poses = []
             self.images = []

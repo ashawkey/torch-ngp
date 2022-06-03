@@ -140,18 +140,19 @@ python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF -O --m
 check the `scripts` directory for more provided examples.
 
 # Performance Reference
-Tested with the default settings on the Lego test dataset. Here the speed refers to the `iterations per second`.
-Unfortunately there is still a large performance gap compared to the original implementation.
-If you are interested in contributing to this repo, you may start from searching `TODO` in the code.
+Tested with the default settings on the Lego dataset.
+Here the speed refers to the `iterations per second` on a V100.
 
-| Model | PSNR | Train Speed | Test Speed |
-| - | - | - | - |
-| instant-ngp (paper)               | 36.39  |  -   | -    |
-| instant-ngp (`-O`)                | 33.30  |  97  | 7.8  |
-| instant-ngp (`-O --error_map`)    | 33.97  |  50  | 7.4  |
-| TensoRF (paper)                | 36.46  |  -   | -    |
-| TensoRF (`-O`)                 | 34.86  |  51  | 2.8  |
-| TensoRF (`-O --error_map`)     | 35.67  |  14  | 2.4  |
+| Model | PSNR | Split | Train Speed | Test Speed |
+| - | - | - | - | - |
+| instant-ngp (paper)            | trainval? | 36.39  |  -   | -    |
+| instant-ngp (`-O`)             | train     | 33.30  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`) | train     | 33.97  |  50  | 7.8  |
+| instant-ngp (`-O`)             | trainval  | 34.82  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`) | trainval  | 35.52  |  50  | 7.8  |
+| TensoRF (paper, train)         | train     | 36.46  |  -   | -    |
+| TensoRF (`-O`)                 | train     | 34.86  |  51  | 2.8  |
+| TensoRF (`-O --error_map`)     | train     | 35.67  |  14  | 2.8  |
 
 # Tips
 **Q**: How to choose the network backbone? 
@@ -166,6 +167,12 @@ If you are interested in contributing to this repo, you may start from searching
 
 **A**: You could start with a large `bound` (e.g., 16) or a small `scale` (e.g., 0.3) to make sure the object falls into the bounding box. The GUI mode can be used to interactively shrink the `bound` to find the suitable value. Uncommenting [this line](https://github.com/ashawkey/torch-ngp/blob/main/nerf/provider.py#L219) will visualize the camera poses, and some good examples can be found in [this issue](https://github.com/ashawkey/torch-ngp/issues/59).
 
+**Q**: Noisy novel views for realistic datasets.
+
+**A**: You could try setting `bg_radius` to a large value, e.g., 32. It trains an extra environment map to model the background in realistic photos. A larger `bound` will also help.
+An example for `bg_radius` in the [firekeeper](https://drive.google.com/file/d/19C0K6_crJ5A9ftHijUmJysxmY-G4DMzq/view?usp=sharing) dataset:
+![bg_model](./assets/bg_model.jpg)
+
 
 # Difference from the original implementation
 * Instead of assuming the scene is bounded in the unit box `[0, 1]` and centered at `(0.5, 0.5, 0.5)`, this repo assumes **the scene is bounded in box `[-bound, bound]`, and centered at `(0, 0, 0)`**. Therefore, the functionality of `aabb_scale` is replaced by `bound` here.
@@ -174,9 +181,9 @@ If you are interested in contributing to this repo, you may start from searching
 
 
 # Update Log
+* 6.3: implement morton3D, misc improvements.
 * 5.29: fix a random bg color issue, add color_space option, better results for blender dataset.
-* 5.28: add a background model (set bg_radius > 0), which can suppress noises for real-world 360 datasets. An example for the [firekeeper](https://drive.google.com/file/d/19C0K6_crJ5A9ftHijUmJysxmY-G4DMzq/view?usp=sharing) dataset:
-![bg_model](./assets/bg_model.jpg)
+* 5.28: add a background model (set bg_radius > 0), which can suppress noises for real-world 360 datasets.
 * 5.21: expose more parameters to control, implement packbits.
 * 4.30: performance improvement (better lr_scheduler).
 * 4.25: add Tanks&Temples dataset support.

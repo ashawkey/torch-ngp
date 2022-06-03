@@ -5,6 +5,9 @@ from nerf.provider import NeRFDataset
 from nerf.gui import NeRFGUI
 from nerf.utils import *
 
+from functools import partial
+from loss import huber_loss
+
 #torch.autograd.set_detect_anomaly(True)
 
 if __name__ == '__main__':
@@ -33,7 +36,7 @@ if __name__ == '__main__':
 
     ### dataset options
     parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
-    parser.add_argument('--color_space', type=str, default='linear', help="Color space, supports (linear, srgb)")
+    parser.add_argument('--color_space', type=str, default='srgb', help="Color space, supports (linear, srgb)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     # (the default value is for the fox dataset)
     parser.add_argument('--bound', type=float, default=2, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
@@ -91,6 +94,8 @@ if __name__ == '__main__':
     print(model)
 
     criterion = torch.nn.MSELoss(reduction='none')
+    #criterion = partial(huber_loss, reduction='none')
+    #criterion = torch.nn.HuberLoss(reduction='none', beta=0.1) # only available after torch 1.10 ?
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
@@ -116,7 +121,7 @@ if __name__ == '__main__':
 
         optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15)
 
-        train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
+        train_loader = NeRFDataset(opt, device=device, type='trainval').dataloader()
 
         # decay to 0.1 * init_lr at last iter step
         scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))

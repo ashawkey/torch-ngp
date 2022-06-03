@@ -97,7 +97,7 @@ class _morton3D(Function):
 
         indices = torch.empty(N, dtype=torch.int32, device=coords.device)
         
-        _backend.morton3D(coords, N, indices)
+        _backend.morton3D(coords.int(), N, indices)
 
         return indices
 
@@ -119,7 +119,7 @@ class _morton3D_invert(Function):
 
         coords = torch.empty(N, 3, dtype=torch.int32, device=indices.device)
         
-        _backend.morton3D_invert(indices, N, coords)
+        _backend.morton3D_invert(indices.int(), N, coords)
 
         return coords
 

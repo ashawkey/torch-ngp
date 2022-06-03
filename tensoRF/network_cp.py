@@ -8,6 +8,8 @@ from encoding import get_encoder
 from activation import trunc_exp
 from nerf.renderer import NeRFRenderer
 
+import raymarching
+
 
 class NeRFNetwork(NeRFRenderer):
     def __init__(self,
@@ -212,15 +214,15 @@ class NeRFNetwork(NeRFRenderer):
     @torch.no_grad()
     def shrink_model(self):
 
-        H = self.density_grid.shape[1]
-        half_grid_size = self.bound / H
+        half_grid_size = self.bound / self.grid_size
         thresh = min(0.01, self.mean_density)
 
         # get new aabb from the coarsest density grid (TODO: from the finest that covers current aabb?)
-        valid_grid = self.density_grid[self.cascade - 1] > thresh # [H, W, D]
-        valid_pos = torch.nonzero(valid_grid) # [Nz, 3], in [0, H - 1]
+        valid_grid = self.density_grid[self.cascade - 1] > thresh # [N]
+        valid_pos = raymarching.morton3D_invert(torch.nonzero(valid_grid)) # [Nz] --> [Nz, 3], in [0, H - 1]
+
         #plot_pointcloud(valid_pos.detach().cpu().numpy()) # lots of noisy outliers in hashnerf...
-        valid_pos = (2 * valid_pos / (H - 1) - 1) * (self.bound - half_grid_size) # [Nz, 3], in [-b+hgs, b-hgs]
+        valid_pos = (2 * valid_pos / (self.grid_size - 1) - 1) * (self.bound - half_grid_size) # [Nz, 3], in [-b+hgs, b-hgs]
         min_pos = valid_pos.amin(0) - half_grid_size # [3]
         max_pos = valid_pos.amax(0) + half_grid_size # [3]
 

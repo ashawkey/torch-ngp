@@ -55,10 +55,10 @@ class Trainer(_Trainer):
 
         self.model.train()
 
-        # update grid
-        if self.model.cuda_ray:
-            with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state()
+        # # update grid
+        # if self.model.cuda_ray:
+        #     with torch.cuda.amp.autocast(enabled=self.fp16):
+        #         self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
@@ -71,6 +71,11 @@ class Trainer(_Trainer):
         self.local_step = 0
 
         for data in loader:
+
+            # update grid every 16 steps
+            if self.model.cuda_ray and self.global_step % 16 == 0:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
             
             self.local_step += 1
             self.global_step += 1
@@ -108,8 +113,9 @@ class Trainer(_Trainer):
             # Different from _Trainer!
             if self.global_step in self.opt.upsample_model_steps:
 
-                # shrink 
-                self.model.shrink_model()
+                # shrink
+                if self.model.cuda_ray: 
+                    self.model.shrink_model()
 
                 # adaptive voxel size from aabb_train
                 n_vox = self.upsample_resolutions.pop(0) ** 3 # n_voxels
@@ -146,6 +152,89 @@ class Trainer(_Trainer):
                 self.lr_scheduler.step()
 
         self.log(f"==> Finished Epoch {self.epoch}.")
+
+
+    # [GUI] just train for 16 steps, without any other overhead that may slow down rendering.
+    def train_gui(self, train_loader, step=16):
+
+        self.model.train()
+
+        total_loss = torch.tensor([0], dtype=torch.float32, device=self.device)
+        
+        loader = iter(train_loader)
+
+        for _ in range(step):
+            
+            # mimic an infinite loop dataloader (in case the total dataset is smaller than step)
+            try:
+                data = next(loader)
+            except StopIteration:
+                loader = iter(train_loader)
+                data = next(loader)
+
+            # mark untrained grid
+            if self.global_step == 0:
+                self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
+                self.error_map = train_loader._data.error_map
+
+            # update grid every 16 steps
+            if self.model.cuda_ray and self.global_step % 16 == 0:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
+            
+            self.global_step += 1
+
+            self.optimizer.zero_grad()
+
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                preds, truths, loss = self.train_step(data)
+         
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            
+            if self.scheduler_update_every_step:
+                self.lr_scheduler.step()
+
+            total_loss += loss.detach()
+
+            # Different from _Trainer!
+            if self.global_step in self.opt.upsample_model_steps:
+
+                # shrink
+                if self.model.cuda_ray: 
+                    self.model.shrink_model()
+
+                # adaptive voxel size from aabb_train
+                n_vox = self.upsample_resolutions.pop(0) ** 3 # n_voxels
+                aabb = self.model.aabb_train.cpu().numpy()
+                vox_size = np.cbrt(np.prod(aabb[3:] - aabb[:3]) / n_vox)
+                reso = ((aabb[3:] - aabb[:3]) / vox_size).astype(np.int32).tolist()
+                
+                self.log(f"[INFO] upsample model at step {self.global_step} from {self.model.resolution} to {reso}")
+                self.model.upsample_model(reso)
+
+                # reset optimizer since params changed.
+                self.optimizer = self.optimizer_fn(self.model)
+                self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)       
+
+        if self.ema is not None:
+            self.ema.update()
+
+        average_loss = total_loss.item() / step
+
+        if not self.scheduler_update_every_step:
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.lr_scheduler.step(average_loss)
+            else:
+                self.lr_scheduler.step()
+
+        outputs = {
+            'loss': average_loss,
+            'lr': self.optimizer.param_groups[0]['lr'],
+        }
+        
+        return outputs
 
 
     def save_checkpoint(self, name=None, full=False, best=False, remove_old=True):

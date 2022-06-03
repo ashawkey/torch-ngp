@@ -549,7 +549,7 @@ class Trainer(object):
             save_path = os.path.join(self.workspace, 'results')
 
         if name is None:
-            name = f'{self.name}_ep{self.epoch:04d}.pth'
+            name = f'{self.name}_ep{self.epoch:04d}'
 
         os.makedirs(save_path, exist_ok=True)
         
@@ -611,7 +611,7 @@ class Trainer(object):
                 self.error_map = train_loader._data.error_map
 
             # update grid every 16 steps
-            if self.model.cuda_ray and self.global_step % 100 == 0:
+            if self.model.cuda_ray and self.global_step % 16 == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
             
@@ -712,10 +712,10 @@ class Trainer(object):
 
         self.model.train()
 
-        # update grid
-        if self.model.cuda_ray:
-            with torch.cuda.amp.autocast(enabled=self.fp16):
-                self.model.update_extra_state()
+        # # update grid
+        # if self.model.cuda_ray:
+        #     with torch.cuda.amp.autocast(enabled=self.fp16):
+        #         self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
@@ -729,6 +729,11 @@ class Trainer(object):
 
         for data in loader:
             
+            # update grid every 16 steps
+            if self.model.cuda_ray and self.global_step % 16 == 0:
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    self.model.update_extra_state()
+                    
             self.local_step += 1
             self.global_step += 1
 
@@ -790,7 +795,7 @@ class Trainer(object):
         self.log(f"++> Evaluate at epoch {self.epoch} ...")
 
         if name is None:
-            name = f'{self.name}_ep{self.epoch:04d}.pth'
+            name = f'{self.name}_ep{self.epoch:04d}'
 
         total_loss = 0
         if self.local_rank == 0:
@@ -893,7 +898,7 @@ class Trainer(object):
     def save_checkpoint(self, name=None, full=False, best=False, remove_old=True):
 
         if name is None:
-            name = f'{self.name}_ep{self.epoch:04d}.pth'
+            name = f'{self.name}_ep{self.epoch:04d}'
 
         state = {
             'epoch': self.epoch,
