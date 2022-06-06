@@ -143,14 +143,14 @@ check the `scripts` directory for more provided examples.
 Tested with the default settings on the Lego dataset.
 Here the speed refers to the `iterations per second` on a V100.
 
-| Model | PSNR | Split | Train Speed | Test Speed |
+| Model | Split | PSNR | Train Speed | Test Speed |
 | - | - | - | - | - |
 | instant-ngp (paper)            | trainval? | 36.39  |  -   | -    |
-| instant-ngp (`-O`)             | train     | 33.30  |  97  | 7.8  |
-| instant-ngp (`-O --error_map`) | train     | 33.97  |  50  | 7.8  |
-| instant-ngp (`-O`)             | trainval  | 34.82  |  97  | 7.8  |
-| instant-ngp (`-O --error_map`) | trainval  | 35.52  |  50  | 7.8  |
-| TensoRF (paper, train)         | train     | 36.46  |  -   | -    |
+| instant-ngp (`-O`)             | train     | 34.14  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`) | train     | 34.84  |  50  | 7.8  |
+| instant-ngp (`-O`)             | trainval (40k steps) | 35.08  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`) | trainval (40k steps) | 35.85  |  50  | 7.8  |
+| TensoRF (paper)                | train     | 36.46  |  -   | -    |
 | TensoRF (`-O`)                 | train     | 34.86  |  51  | 2.8  |
 | TensoRF (`-O --error_map`)     | train     | 35.67  |  14  | 2.8  |
 
@@ -181,6 +181,7 @@ An example for `bg_radius` in the [firekeeper](https://drive.google.com/file/d/1
 
 
 # Update Log
+* 6.6: fix gridencoder to always use more accurate float32 inputs (coords), slightly improved performance (matched with tcnn).
 * 6.3: implement morton3D, misc improvements.
 * 5.29: fix a random bg color issue, add color_space option, better results for blender dataset.
 * 5.28: add a background model (set bg_radius > 0), which can suppress noises for real-world 360 datasets.

@@ -19,7 +19,7 @@
 
 
 // requires CUDA >= 10 and ARCH >= 70
-// this is very slow compared to float or __half2, do not use!
+// this is very slow compared to float or __half2, and never used, just for compatability of half precision...
 static inline  __device__ at::Half atomicAdd(at::Half *address, at::Half val) {
   return atomicAdd(reinterpret_cast<__half*>(address), val);
 }
@@ -73,7 +73,7 @@ __device__ uint32_t get_grid_index(const uint32_t gridtype, const uint32_t ch, c
 
 template <typename scalar_t, uint32_t D, uint32_t C>
 __global__ void kernel_grid(
-    const scalar_t * __restrict__ inputs, 
+    const float * __restrict__ inputs, 
     const scalar_t * __restrict__ grid, 
     const int * __restrict__ offsets, 
     scalar_t * __restrict__ outputs, 
@@ -130,7 +130,7 @@ __global__ void kernel_grid(
 
     #pragma unroll
     for (uint32_t d = 0; d < D; d++) {
-        pos[d] = (float)inputs[d] * scale + 0.5f;
+        pos[d] = inputs[d] * scale + 0.5f;
         pos_grid[d] = floorf(pos[d]);
         pos[d] -= (float)pos_grid[d];
     }
@@ -225,7 +225,7 @@ __global__ void kernel_grid(
 template <typename scalar_t, uint32_t D, uint32_t C, uint32_t N_C>
 __global__ void kernel_grid_backward(
     const scalar_t * __restrict__ grad,
-    const scalar_t * __restrict__ inputs, 
+    const float * __restrict__ inputs, 
     const scalar_t * __restrict__ grid, 
     const int * __restrict__ offsets, 
     scalar_t * __restrict__ grad_grid, 
@@ -261,7 +261,7 @@ __global__ void kernel_grid_backward(
 
     #pragma unroll
     for (uint32_t d = 0; d < D; d++) {
-        pos[d] = (float)inputs[d] * scale + 0.5f;
+        pos[d] = inputs[d] * scale + 0.5f;
         pos_grid[d] = floorf(pos[d]);
         pos[d] -= (float)pos_grid[d];
     }
@@ -341,7 +341,7 @@ __global__ void kernel_input_backward(
 
 
 template <typename scalar_t, uint32_t D>
-void kernel_grid_wrapper(const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, const uint32_t gridtype) {
+void kernel_grid_wrapper(const float *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, const uint32_t gridtype) {
     static constexpr uint32_t N_THREAD = 512;
     const dim3 blocks_hashgrid = { div_round_up(B, N_THREAD), L, 1 };
     switch (C) {
@@ -360,7 +360,7 @@ void kernel_grid_wrapper(const scalar_t *inputs, const scalar_t *embeddings, con
 // H: base resolution
 // dy_dx: [B, L * D * C]
 template <typename scalar_t>
-void grid_encode_forward_cuda(const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, const uint32_t gridtype) {
+void grid_encode_forward_cuda(const float *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, const uint32_t gridtype) {
     switch (D) {
         case 2: kernel_grid_wrapper<scalar_t, 2>(inputs, embeddings, offsets, outputs, B, C, L, S, H, calc_grad_inputs, dy_dx, gridtype); break;
         case 3: kernel_grid_wrapper<scalar_t, 3>(inputs, embeddings, offsets, outputs, B, C, L, S, H, calc_grad_inputs, dy_dx, gridtype); break;
@@ -370,7 +370,7 @@ void grid_encode_forward_cuda(const scalar_t *inputs, const scalar_t *embeddings
 }
 
 template <typename scalar_t, uint32_t D>
-void kernel_grid_backward_wrapper(const scalar_t *grad, const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *grad_embeddings, const uint32_t B, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, scalar_t *grad_inputs, const uint32_t gridtype) {
+void kernel_grid_backward_wrapper(const scalar_t *grad, const float *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *grad_embeddings, const uint32_t B, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, scalar_t *grad_inputs, const uint32_t gridtype) {
     static constexpr uint32_t N_THREAD = 256;
     const uint32_t N_C = std::min(2u, C); // n_features_per_thread
     const dim3 blocks_hashgrid = { div_round_up(B * C / N_C, N_THREAD), L, 1 };
@@ -403,7 +403,7 @@ void kernel_grid_backward_wrapper(const scalar_t *grad, const scalar_t *inputs, 
 // grad_embeddings: [sO, C]
 // H: base resolution
 template <typename scalar_t>
-void grid_encode_backward_cuda(const scalar_t *grad, const scalar_t *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *grad_embeddings, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, scalar_t *grad_inputs, const uint32_t gridtype) {
+void grid_encode_backward_cuda(const scalar_t *grad, const float *inputs, const scalar_t *embeddings, const int *offsets, scalar_t *grad_embeddings, const uint32_t B, const uint32_t D, const uint32_t C, const uint32_t L, const float S, const uint32_t H, const bool calc_grad_inputs, scalar_t *dy_dx, scalar_t *grad_inputs, const uint32_t gridtype) {
     switch (D) {
         case 2: kernel_grid_backward_wrapper<scalar_t, 2>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, S, H, calc_grad_inputs, dy_dx, grad_inputs, gridtype); break;
         case 3: kernel_grid_backward_wrapper<scalar_t, 3>(grad, inputs, embeddings, offsets, grad_embeddings, B, C, L, S, H, calc_grad_inputs, dy_dx, grad_inputs, gridtype); break;
@@ -433,8 +433,8 @@ void grid_encode_forward(const at::Tensor inputs, const at::Tensor embeddings, c
     CHECK_IS_FLOATING(dy_dx);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    inputs.scalar_type(), "grid_encode_forward", ([&] {
-        grid_encode_forward_cuda<scalar_t>(inputs.data_ptr<scalar_t>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), outputs.data_ptr<scalar_t>(), B, D, C, L, S, H, calc_grad_inputs, dy_dx.data_ptr<scalar_t>(), gridtype);
+    embeddings.scalar_type(), "grid_encode_forward", ([&] {
+        grid_encode_forward_cuda<scalar_t>(inputs.data_ptr<float>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), outputs.data_ptr<scalar_t>(), B, D, C, L, S, H, calc_grad_inputs, dy_dx.data_ptr<scalar_t>(), gridtype);
     }));
 }
 
@@ -465,7 +465,7 @@ void grid_encode_backward(const at::Tensor grad, const at::Tensor inputs, const 
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     grad.scalar_type(), "grid_encode_backward", ([&] {
-        grid_encode_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), inputs.data_ptr<scalar_t>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), grad_embeddings.data_ptr<scalar_t>(), B, D, C, L, S, H, calc_grad_inputs, dy_dx.data_ptr<scalar_t>(), grad_inputs.data_ptr<scalar_t>(), gridtype);
+        grid_encode_backward_cuda<scalar_t>(grad.data_ptr<scalar_t>(), inputs.data_ptr<float>(), embeddings.data_ptr<scalar_t>(), offsets.data_ptr<int>(), grad_embeddings.data_ptr<scalar_t>(), B, D, C, L, S, H, calc_grad_inputs, dy_dx.data_ptr<scalar_t>(), grad_inputs.data_ptr<scalar_t>(), gridtype);
     }));
     
 }

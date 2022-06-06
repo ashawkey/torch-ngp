@@ -4,7 +4,7 @@ from torch.cuda.amp import custom_bwd, custom_fwd
 
 class _trunc_exp(Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.float)
+    @custom_fwd(cast_inputs=torch.float32) # cast to float32
     def forward(ctx, x):
         ctx.save_for_backward(x)
         return torch.exp(x)

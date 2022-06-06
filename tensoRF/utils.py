@@ -55,11 +55,6 @@ class Trainer(_Trainer):
 
         self.model.train()
 
-        # # update grid
-        # if self.model.cuda_ray:
-        #     with torch.cuda.amp.autocast(enabled=self.fp16):
-        #         self.model.update_extra_state()
-
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html
         if self.world_size > 1:

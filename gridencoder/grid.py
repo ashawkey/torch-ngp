@@ -18,7 +18,7 @@ _gridtype_to_id = {
 
 class _grid_encode(Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.half)
+    @custom_fwd
     def forward(ctx, inputs, embeddings, offsets, per_level_scale, base_resolution, calc_grad_inputs=False, gridtype=0):
         # inputs: [B, D], float in [0, 1]
         # embeddings: [sO, C], float
@@ -26,8 +26,6 @@ class _grid_encode(Function):
         # RETURN: [B, F], float
 
         inputs = inputs.contiguous()
-        embeddings = embeddings.contiguous()
-        offsets = offsets.contiguous()
 
         B, D = inputs.shape # batch size, coord dim
         L = offsets.shape[0] - 1 # level
@@ -35,13 +33,18 @@ class _grid_encode(Function):
         S = np.log2(per_level_scale) # resolution multiplier at each level, apply log2 for later CUDA exp2f
         H = base_resolution # base resolution
 
+        # manually handle autocast (only use half precision embeddings, inputs must be float for enough precision)
+        # if C % 2 != 0, force float, since half for atomicAdd is very slow.
+        if torch.is_autocast_enabled() and C % 2 == 0:
+            embeddings = embeddings.to(torch.half)
+
         # L first, optimize cache for cuda kernel, but needs an extra permute later
-        outputs = torch.empty(L, B, C, device=inputs.device, dtype=inputs.dtype)
+        outputs = torch.empty(L, B, C, device=inputs.device, dtype=embeddings.dtype)
 
         if calc_grad_inputs:
-            dy_dx = torch.empty(B, L * D * C, device=inputs.device, dtype=inputs.dtype)
+            dy_dx = torch.empty(B, L * D * C, device=inputs.device, dtype=embeddings.dtype)
         else:
-            dy_dx = torch.empty(1, device=inputs.device, dtype=inputs.dtype)
+            dy_dx = torch.empty(1, device=inputs.device, dtype=embeddings.dtype)
 
         _backend.grid_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, calc_grad_inputs, dy_dx, gridtype)
 
@@ -69,13 +72,14 @@ class _grid_encode(Function):
         grad_embeddings = torch.zeros_like(embeddings)
 
         if calc_grad_inputs:
-            grad_inputs = torch.zeros_like(inputs)
+            grad_inputs = torch.zeros_like(inputs, dtype=embeddings.dtype)
         else:
-            grad_inputs = torch.zeros(1, device=inputs.device, dtype=inputs.dtype)
+            grad_inputs = torch.zeros(1, device=inputs.device, dtype=embeddings.dtype)
 
         _backend.grid_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, S, H, calc_grad_inputs, dy_dx, grad_inputs, gridtype)
 
         if calc_grad_inputs:
+            grad_inputs = grad_inputs.to(inputs.dtype)
             return grad_inputs, grad_embeddings, None, None, None, None, None
         else:
             return None, grad_embeddings, None, None, None, None, None
@@ -112,7 +116,7 @@ class GridEncoder(nn.Module):
         for i in range(num_levels):
             resolution = int(np.ceil(base_resolution * per_level_scale ** i))
             params_in_level = min(self.max_params, (resolution + 1) ** input_dim) # limit max number
-            #params_in_level = np.ceil(params_in_level / 8) * 8 # make divisible
+            params_in_level = int(np.ceil(params_in_level / 8) * 8) # make divisible
             offsets.append(offset)
             offset += params_in_level
         offsets.append(offset)

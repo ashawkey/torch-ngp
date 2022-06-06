@@ -406,7 +406,7 @@ class Trainer(object):
         else:
             gt_rgb = images
 
-        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, **vars(self.opt))
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=False, **vars(self.opt))
     
         pred_rgb = outputs['image']
 
@@ -711,11 +711,6 @@ class Trainer(object):
                 metric.clear()
 
         self.model.train()
-
-        # # update grid
-        # if self.model.cuda_ray:
-        #     with torch.cuda.amp.autocast(enabled=self.fp16):
-        #         self.model.update_extra_state()
 
         # distributedSampler: must call set_epoch() to shuffle indices across multiple epochs
         # ref: https://pytorch.org/docs/stable/data.html

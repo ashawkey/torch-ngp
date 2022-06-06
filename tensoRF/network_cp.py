@@ -215,7 +215,7 @@ class NeRFNetwork(NeRFRenderer):
     def shrink_model(self):
 
         half_grid_size = self.bound / self.grid_size
-        thresh = min(0.01, self.mean_density)
+        thresh = min(self.density_thresh, self.mean_density)
 
         # get new aabb from the coarsest density grid (TODO: from the finest that covers current aabb?)
         valid_grid = self.density_grid[self.cascade - 1] > thresh # [N]

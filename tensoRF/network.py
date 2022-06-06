@@ -282,7 +282,7 @@ class NeRFNetwork(NeRFRenderer):
         # shrink aabb_train and the model so it only represents the space inside aabb_train.
 
         half_grid_size = self.bound / self.grid_size
-        thresh = min(0.01, self.mean_density)
+        thresh = min(self.density_thresh, self.mean_density)
 
         # get new aabb from the coarsest density grid (TODO: from the finest that covers current aabb?)
         valid_grid = self.density_grid[self.cascade - 1] > thresh # [N]

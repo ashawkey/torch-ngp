@@ -20,7 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=0)
 
     ### training options
-    parser.add_argument('--iters', type=int, default=30000, help="training iters")
+    parser.add_argument('--iters', type=int, default=40000, help="training iters")
     parser.add_argument('--lr', type=float, default=1e-2, help="initial learning rate")
     parser.add_argument('--ckpt', type=str, default='latest')
     parser.add_argument('--num_rays', type=int, default=4096, help="num rays sampled per image for each training step")
@@ -85,7 +85,7 @@ if __name__ == '__main__':
         encoding="hashgrid",
         bound=opt.bound,
         cuda_ray=opt.cuda_ray,
-        density_scale=1,
+        density_scale=0.5,
         min_near=opt.min_near,
         density_thresh=opt.density_thresh,
         bg_radius=opt.bg_radius,
