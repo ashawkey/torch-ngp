@@ -13,7 +13,7 @@ except ImportError:
 
 class _sh_encoder(Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.half)
+    @custom_fwd(cast_inputs=torch.float32) # force float32 for better precision
     def forward(ctx, inputs, degree, calc_grad_inputs=False):
         # inputs: [B, input_dim], float in [-1, 1]
         # RETURN: [B, F], float
@@ -38,7 +38,7 @@ class _sh_encoder(Function):
         return outputs
     
     @staticmethod
-    @once_differentiable
+    #@once_differentiable
     @custom_bwd
     def backward(ctx, grad):
         # grad: [B, C * C]
