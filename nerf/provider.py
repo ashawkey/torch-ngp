@@ -201,7 +201,9 @@ class NeRFDataset:
                 else:
                     image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
 
-                image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
+                if image.shape[0] != self.H or image.shape[1] != self.W:
+                    image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
+                    
                 image = image.astype(np.float32) / 255 # [H, W, 3/4]
 
                 self.poses.append(pose)

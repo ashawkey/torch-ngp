@@ -163,6 +163,7 @@ class NeRFNetwork(NeRFRenderer):
         # sigma
         sigma_feat = self.get_sigma_feat(x)
         sigma = trunc_exp(sigma_feat)
+        #sigma = F.softplus(sigma_feat - 3)
         #sigma = F.relu(sigma_feat)
 
         # rgb
@@ -190,6 +191,7 @@ class NeRFNetwork(NeRFRenderer):
 
         sigma_feat = self.get_sigma_feat(x)
         sigma = trunc_exp(sigma_feat)
+        #sigma = F.softplus(sigma_feat - 3)
         #sigma = F.relu(sigma_feat)
 
         return {

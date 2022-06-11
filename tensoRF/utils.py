@@ -109,7 +109,7 @@ class Trainer(_Trainer):
             if self.global_step in self.opt.upsample_model_steps:
 
                 # shrink
-                if self.model.cuda_ray: 
+                if self.model.cuda_ray: # and self.global_step == self.opt.upsample_model_steps[0]: 
                     self.model.shrink_model()
 
                 # adaptive voxel size from aabb_train

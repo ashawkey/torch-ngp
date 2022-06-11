@@ -73,7 +73,7 @@ class NeRFNetwork(NeRFRenderer):
             self.hidden_dim_bg = hidden_dim_bg
             self.encoder_bg, self.in_dim_bg = get_encoder(encoding_bg, input_dim=2, num_levels=4, log2_hashmap_size=19, desired_resolution=2048) # much smaller hashgrid 
             
-            bg_net =  []
+            bg_net = []
             for l in range(num_layers_bg):
                 if l == 0:
                     in_dim = self.in_dim_bg + self.in_dim_dir

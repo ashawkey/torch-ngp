@@ -392,7 +392,7 @@ class Trainer(object):
 
         if self.opt.color_space == 'linear':
             images[..., :3] = srgb_to_linear(images[..., :3])
-    
+
         if self.model.bg_radius > 0:
             bg_color = 1
         # train with random background color if not using a bg model.

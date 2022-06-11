@@ -323,7 +323,8 @@ __global__ void kernel_march_rays_train(
     scalar_t * xyzs, scalar_t * dirs, scalar_t * deltas,
     int * rays,
     int * counter,
-    const uint32_t perturb
+    const uint32_t perturb,
+    pcg32 rng
 ) {
     // parallel per ray
     const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
@@ -347,7 +348,7 @@ __global__ void kernel_march_rays_train(
     float t0 = near;
     
     if (perturb) {
-        pcg32 rng((uint64_t)n);
+        rng.advance(n);
         t0 += dt_min * rng.next_float();
     }
     
@@ -482,10 +483,11 @@ __global__ void kernel_march_rays_train(
 void march_rays_train(at::Tensor rays_o, at::Tensor rays_d, at::Tensor grid, const float bound, const float dt_gamma, const uint32_t max_steps, const uint32_t N, const uint32_t C, const uint32_t H, const uint32_t M, at::Tensor nears, at::Tensor fars, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, at::Tensor rays, at::Tensor counter, const uint32_t perturb) {
 
     static constexpr uint32_t N_THREAD = 256;
+    pcg32 rng = pcg32{(uint64_t)42}; // hard coded random seed
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "march_rays_train", ([&] {
-        kernel_march_rays_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<uint8_t>(), bound, dt_gamma, max_steps, N, C, H, M, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb);
+        kernel_march_rays_train<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), grid.data_ptr<uint8_t>(), bound, dt_gamma, max_steps, N, C, H, M, nears.data_ptr<scalar_t>(), fars.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), rays.data_ptr<int>(), counter.data_ptr<int>(), perturb, rng);
     }));
 }
 
@@ -712,7 +714,8 @@ __global__ void kernel_march_rays(
     const scalar_t* __restrict__ nears,
     const scalar_t* __restrict__ fars,
     scalar_t* xyzs, scalar_t* dirs, scalar_t* deltas,
-    const uint32_t perturb
+    const uint32_t perturb,
+    pcg32 rng
 ) {
     const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
     if (n >= n_alive) return;
@@ -740,7 +743,7 @@ __global__ void kernel_march_rays(
 
     // introduce some randomness (pass in spp as perturb here)
     if (perturb) {
-        pcg32 rng((uint64_t)n, (uint64_t)perturb);
+        rng.advance(n);
         t += dt_min * rng.next_float();
     }
 
@@ -806,9 +809,11 @@ __global__ void kernel_march_rays(
 
 void march_rays(const uint32_t n_alive, const uint32_t n_step, at::Tensor rays_alive, at::Tensor rays_t, at::Tensor rays_o, at::Tensor rays_d, const float bound, const float dt_gamma, const uint32_t max_steps, const uint32_t C, const uint32_t H, at::Tensor grid, at::Tensor near, at::Tensor far, at::Tensor xyzs, at::Tensor dirs, at::Tensor deltas, const uint32_t perturb) {
     static constexpr uint32_t N_THREAD = 256;
+    pcg32 rng = pcg32{(uint64_t)perturb};
+
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     rays_o.scalar_type(), "march_rays", ([&] {
-        kernel_march_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), bound, dt_gamma, max_steps, C, H, grid.data_ptr<uint8_t>(), near.data_ptr<scalar_t>(), far.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), perturb);
+        kernel_march_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), bound, dt_gamma, max_steps, C, H, grid.data_ptr<uint8_t>(), near.data_ptr<scalar_t>(), far.data_ptr<scalar_t>(), xyzs.data_ptr<scalar_t>(), dirs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), perturb, rng);
     }));
 }
 
@@ -874,7 +879,7 @@ __global__ void kernel_composite_rays(
 
         // ray is terminated if T is too small
         // NOTE: can significantly accelerate inference!
-        if (T < 1e-5) break;
+        if (T < 1e-4) break;
 
         // locate
         sigmas++;
