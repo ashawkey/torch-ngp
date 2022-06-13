@@ -202,7 +202,7 @@ class PSNRMeter:
         preds, truths = self.prepare_inputs(preds, truths) # [B, N, 3] or [B, H, W, 3], range[0, 1]
           
         # simplified since max_pixel_value is 1 here.
-        psnr = -10 * np.log10(np.mean(np.power(preds - truths, 2)))
+        psnr = -10 * np.log10(np.mean((preds - truths) ** 2))
         
         self.V += psnr
         self.N += 1
