@@ -482,9 +482,7 @@ class NeRFRenderer(nn.Module):
                             cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
                             # query density
                             sigmas = self.density(cas_xyzs)['sigma'].reshape(-1).detach()
-                            # from `scalbnf(MIN_CONE_STEPSIZE(), 0)`, check `splat_grid_samples_nerf_max_nearest_neighbor`
-                            # scale == 2 * sqrt(3) / 1024
-                            sigmas *= self.density_scale * 0.003383
+                            sigmas *= self.density_scale
                             # assign 
                             tmp_grid[cas, indices] = sigmas
 
@@ -514,16 +512,19 @@ class NeRFRenderer(nn.Module):
                 cas_xyzs += (torch.rand_like(cas_xyzs) * 2 - 1) * half_grid_size
                 # query density
                 sigmas = self.density(cas_xyzs)['sigma'].reshape(-1).detach()
-                # from `scalbnf(MIN_CONE_STEPSIZE(), 0)`, check `splat_grid_samples_nerf_max_nearest_neighbor`
-                # scale == 2 * sqrt(3) / 1024
-                sigmas *= self.density_scale * 0.003383
+                sigmas *= self.density_scale
                 # assign 
                 tmp_grid[cas, indices] = sigmas
+
+        ## max-pool on tmp_grid for less aggressive culling [No significant improvement...]
+        # invalid_mask = tmp_grid < 0
+        # tmp_grid = F.max_pool3d(tmp_grid.view(self.cascade, 1, self.grid_size, self.grid_size, self.grid_size), kernel_size=3, stride=1, padding=1).view(self.cascade, -1)
+        # tmp_grid[invalid_mask] = -1
 
         # ema update
         valid_mask = (self.density_grid >= 0) & (tmp_grid >= 0)
         self.density_grid[valid_mask] = torch.maximum(self.density_grid[valid_mask] * decay, tmp_grid[valid_mask])
-        self.mean_density = torch.mean(self.density_grid.clamp(min=0)).item()
+        self.mean_density = torch.mean(self.density_grid.clamp(min=0)).item() # -1 non-training regions are viewed as 0 density.
         self.iter_density += 1
 
         # convert to bitfield

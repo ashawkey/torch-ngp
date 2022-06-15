@@ -1,8 +1,9 @@
 # torch-ngp
 
 This repository contains:
-* A pytorch implementation of [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
-* A pytorch implementation of [TensoRF](https://github.com/apchenstu/TensoRF), as described in [_TensoRF: Tensorial Radiance Fields_](https://arxiv.org/abs/2203.09517).
+* A pytorch implementation of the SDF and NeRF part (grid encoder, density grid ray sampler) in [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
+* A pytorch implementation of [TensoRF](https://github.com/apchenstu/TensoRF), as described in [_TensoRF: Tensorial Radiance Fields_](https://arxiv.org/abs/2203.09517), adapted to instant-ngp's NeRF framework.
+* Some experimental features in the NeRF framework (e.g., text-guided NeRF editig similar to [CLIP-NeRF](https://arxiv.org/abs/2112.05139)).
 * A GUI for training/visualizing NeRF!
 
 https://user-images.githubusercontent.com/25863658/155265815-c608254f-2f00-4664-a39d-e00eae51ca59.mp4
@@ -145,14 +146,14 @@ Here the speed refers to the `iterations per second` on a V100.
 
 | Model | Split | PSNR | Train Speed | Test Speed |
 | - | - | - | - | - |
-| instant-ngp (paper)            | trainval? | 36.39  |  -   | -    |
-| instant-ngp (`-O`)             | train     | 34.14  |  97  | 7.8  |
-| instant-ngp (`-O --error_map`) | train     | 34.84  |  50  | 7.8  |
-| instant-ngp (`-O`)             | trainval (40k steps) | 35.08  |  97  | 7.8  |
-| instant-ngp (`-O --error_map`) | trainval (40k steps) | 35.85  |  50  | 7.8  |
-| TensoRF (paper)                | train     | 36.46  |  -   | -    |
-| TensoRF (`-O`)                 | train     | 34.86  |  51  | 2.8  |
-| TensoRF (`-O --error_map`)     | train     | 35.67  |  14  | 2.8  |
+| instant-ngp (paper)            | trainval?            | 36.39  |  -   | -    |
+| instant-ngp (`-O`)             | train (30K steps)    | 34.15  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`) | train (30K steps)    | 34.88  |  50  | 7.8  |
+| instant-ngp (`-O`)             | trainval (40k steps) | 35.22  |  97  | 7.8  |
+| instant-ngp (`-O --error_map`) | trainval (40k steps) | 36.00  |  50  | 7.8  |
+| TensoRF (paper)                | train (30K steps)    | 36.46  |  -   | -    |
+| TensoRF (`-O`)                 | train (30K steps)    | 35.05  |  51  | 2.8  |
+| TensoRF (`-O --error_map`)     | train (30K steps)    | 35.84  |  14  | 2.8  |
 
 # Tips
 **Q**: How to choose the network backbone? 
@@ -181,6 +182,7 @@ An example for `bg_radius` in the [firekeeper](https://drive.google.com/file/d/1
 
 
 # Update Log
+* 6.15: fixed a bug in raymarching, improved PSNR. Density thresh is directly applied on sigmas now (removed the empirical scaling factor).
 * 6.6: fix gridencoder to always use more accurate float32 inputs (coords), slightly improved performance (matched with tcnn).
 * 6.3: implement morton3D, misc improvements.
 * 5.29: fix a random bg color issue, add color_space option, better results for blender dataset.

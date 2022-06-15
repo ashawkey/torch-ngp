@@ -338,7 +338,7 @@ __global__ void kernel_march_rays_train(
     const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
     const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
     const float rdx = 1 / dx, rdy = 1 / dy, rdz = 1 / dz;
-    const float rHm1 = 1 / (float)(H - 1);
+    const float rH = 1 / (float)H;
 
     const float near = nears[n];
     const float far = fars[n];
@@ -390,9 +390,10 @@ __global__ void kernel_march_rays_train(
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
-            const float tx = (((nx + 0.5f + 0.5f * signf(dx)) * rHm1 * 2 - 1) * mip_bound - x) * rdx;
-            const float ty = (((ny + 0.5f + 0.5f * signf(dy)) * rHm1 * 2 - 1) * mip_bound - y) * rdy;
-            const float tz = (((nz + 0.5f + 0.5f * signf(dz)) * rHm1 * 2 - 1) * mip_bound - z) * rdz;
+            const float tx = (((nx + 0.5f + 0.5f * signf(dx)) * rH * 2 - 1) * mip_bound - x) * rdx;
+            const float ty = (((ny + 0.5f + 0.5f * signf(dy)) * rH * 2 - 1) * mip_bound - y) * rdy;
+            const float tz = (((nz + 0.5f + 0.5f * signf(dz)) * rH * 2 - 1) * mip_bound - z) * rdz;
+
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
             do { 
@@ -469,9 +470,9 @@ __global__ void kernel_march_rays_train(
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
-            const float tx = (((nx + 0.5f + 0.5f * signf(dx)) * rHm1 * 2 - 1) * mip_bound - x) * rdx;
-            const float ty = (((ny + 0.5f + 0.5f * signf(dy)) * rHm1 * 2 - 1) * mip_bound - y) * rdy;
-            const float tz = (((nz + 0.5f + 0.5f * signf(dz)) * rHm1 * 2 - 1) * mip_bound - z) * rdz;
+            const float tx = (((nx + 0.5f + 0.5f * signf(dx)) * rH * 2 - 1) * mip_bound - x) * rdx;
+            const float ty = (((ny + 0.5f + 0.5f * signf(dy)) * rH * 2 - 1) * mip_bound - y) * rdy;
+            const float tz = (((nz + 0.5f + 0.5f * signf(dz)) * rH * 2 - 1) * mip_bound - z) * rdz;
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
             do { 
@@ -734,7 +735,7 @@ __global__ void kernel_march_rays(
     const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
     const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
     const float rdx = 1 / dx, rdy = 1 / dy, rdz = 1 / dz;
-    const float rHm1 = 1 / (float)(H - 1);
+    const float rH = 1 / (float)H;
 
     const float near = nears[index], far = fars[index];
 
@@ -797,9 +798,9 @@ __global__ void kernel_march_rays(
         // else, skip a large step (basically skip a voxel grid)
         } else {
             // calc distance to next voxel
-            const float tx = (((nx + 0.5f + 0.5f * signf(dx)) * rHm1 * 2 - 1) * mip_bound - x) * rdx;
-            const float ty = (((ny + 0.5f + 0.5f * signf(dy)) * rHm1 * 2 - 1) * mip_bound - y) * rdy;
-            const float tz = (((nz + 0.5f + 0.5f * signf(dz)) * rHm1 * 2 - 1) * mip_bound - z) * rdz;
+            const float tx = (((nx + 0.5f + 0.5f * signf(dx)) * rH * 2 - 1) * mip_bound - x) * rdx;
+            const float ty = (((ny + 0.5f + 0.5f * signf(dy)) * rH * 2 - 1) * mip_bound - y) * rdy;
+            const float tz = (((nz + 0.5f + 0.5f * signf(dz)) * rH * 2 - 1) * mip_bound - z) * rdz;
             const float tt = t + fmaxf(0.0f, fminf(tx, fminf(ty, tz)));
             // step until next voxel
             do { 
