@@ -393,9 +393,9 @@ class Trainer(object):
         if self.opt.color_space == 'linear':
             images[..., :3] = srgb_to_linear(images[..., :3])
 
-        if self.model.bg_radius > 0:
+        if C == 3 or self.model.bg_radius > 0:
             bg_color = 1
-        # train with random background color if not using a bg model.
+        # train with random background color if not using a bg model and has alpha channel.
         else:
             #bg_color = torch.ones(3, device=self.device) # [3], fixed white background
             #bg_color = torch.rand(3, device=self.device) # [3], frame-wise random.

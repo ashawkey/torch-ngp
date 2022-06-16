@@ -1,6 +1,9 @@
 from nerf.utils import *
 from nerf.utils import Trainer as _Trainer
 
+# for isinstance
+from tensoRF.network_cc import NeRFNetwork as CCNeRF
+
 
 class Trainer(_Trainer):
     def __init__(self, 
@@ -244,6 +247,13 @@ class Trainer(_Trainer):
             'resolution': self.model.resolution, # Different from _Trainer!
         }
 
+        # special case for CCNeRF...
+        if isinstance(self.model, CCNeRF):
+            state['rank_vec_density'] = self.model.rank_vec_density[0]
+            state['rank_mat_density'] = self.model.rank_mat_density[0]
+            state['rank_vec'] = self.model.rank_vec[0]
+            state['rank_mat'] = self.model.rank_mat[0]
+
         if self.model.cuda_ray:
             state['mean_count'] = self.model.mean_count
             state['mean_density'] = self.model.mean_density
@@ -313,13 +323,39 @@ class Trainer(_Trainer):
         #     self.log("[INFO] loaded model.")
         #     return
 
-        self.model.upsample_model(checkpoint_dict['resolution']) # Different from _Trainer!
+        # special case for CCNeRF: model structure should be identical to ckpt...
+        if isinstance(self.model, CCNeRF):
+
+            # print(checkpoint_dict['rank_vec_density'], checkpoint_dict['rank_mat_density'], checkpoint_dict['rank_vec'], checkpoint_dict['rank_mat'])
+
+            # very ugly...
+            self.model = CCNeRF(
+                rank_vec_density=checkpoint_dict['rank_vec_density'],
+                rank_mat_density=checkpoint_dict['rank_mat_density'],
+                rank_vec=checkpoint_dict['rank_vec'],
+                rank_mat=checkpoint_dict['rank_mat'],
+                resolution=checkpoint_dict['resolution'],
+                bound=self.opt.bound,
+                cuda_ray=self.opt.cuda_ray,
+                density_scale=1,
+                min_near=self.opt.min_near,
+                density_thresh=self.opt.density_thresh,
+                bg_radius=self.opt.bg_radius,
+            ).to(self.device)
+
+            self.log(f"[INFO] ===== re-initialize CCNeRF =====")
+            self.log(self.model)
+
+        else:
+            self.model.upsample_model(checkpoint_dict['resolution'])
+
         if self.optimizer_fn is not None:
             self.optimizer = self.optimizer_fn(self.model)
         if self.lr_scheduler_fn is not None:
             self.lr_scheduler = self.lr_scheduler_fn(self.optimizer)
 
         missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
+
         self.log("[INFO] loaded model.")
         if len(missing_keys) > 0:
             self.log(f"[WARN] missing keys: {missing_keys}")
