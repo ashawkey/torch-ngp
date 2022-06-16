@@ -1,15 +1,17 @@
 # Gallery
 
 ## Instant-ngp NeRF
-Fox:
+
+Fox: 
 ![fox](fox.jpg)
 
-LLFF:
+LLFF: 
 ![llff](llff.jpg)
 
-Tanks&Temples:
+Tanks&Temples: 
 ![truck](truck.jpg)
 
 ## CCNeRF
-Composition example:
+
+Composition example: 
 ![ccnerf](ccnerf.jpg)
