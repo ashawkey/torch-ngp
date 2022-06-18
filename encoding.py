@@ -45,7 +45,7 @@ class FreqEncoder(nn.Module):
 def get_encoder(encoding, input_dim=3, 
                 multires=6, 
                 degree=4,
-                num_levels=16, level_dim=2, base_resolution=16, log2_hashmap_size=19, desired_resolution=2048,
+                num_levels=16, level_dim=2, base_resolution=16, log2_hashmap_size=19, desired_resolution=2048, align_corners=True,
                 **kwargs):
 
     if encoding == 'None':
@@ -60,11 +60,11 @@ def get_encoder(encoding, input_dim=3,
 
     elif encoding == 'hashgrid':
         from gridencoder import GridEncoder
-        encoder = GridEncoder(input_dim=input_dim, num_levels=num_levels, level_dim=level_dim, base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size, desired_resolution=desired_resolution, gridtype='hash')
+        encoder = GridEncoder(input_dim=input_dim, num_levels=num_levels, level_dim=level_dim, base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size, desired_resolution=desired_resolution, gridtype='hash', align_corners=align_corners)
     
     elif encoding == 'tiledgrid':
         from gridencoder import GridEncoder
-        encoder = GridEncoder(input_dim=input_dim, num_levels=num_levels, level_dim=level_dim, base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size, desired_resolution=desired_resolution, gridtype='tiled')
+        encoder = GridEncoder(input_dim=input_dim, num_levels=num_levels, level_dim=level_dim, base_resolution=base_resolution, log2_hashmap_size=log2_hashmap_size, desired_resolution=desired_resolution, gridtype='tiled', align_corners=align_corners)
     
     elif encoding == 'ash':
         from ashencoder import AshEncoder

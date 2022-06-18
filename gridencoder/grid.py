@@ -19,7 +19,7 @@ _gridtype_to_id = {
 class _grid_encode(Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, inputs, embeddings, offsets, per_level_scale, base_resolution, calc_grad_inputs=False, gridtype=0):
+    def forward(ctx, inputs, embeddings, offsets, per_level_scale, base_resolution, calc_grad_inputs=False, gridtype=0, align_corners=False):
         # inputs: [B, D], float in [0, 1]
         # embeddings: [sO, C], float
         # offsets: [L + 1], int
@@ -46,7 +46,7 @@ class _grid_encode(Function):
         else:
             dy_dx = torch.empty(1, device=inputs.device, dtype=embeddings.dtype)
 
-        _backend.grid_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, calc_grad_inputs, dy_dx, gridtype)
+        _backend.grid_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, calc_grad_inputs, dy_dx, gridtype, align_corners)
 
         # permute back to [B, L * C]
         outputs = outputs.permute(1, 0, 2).reshape(B, L * C)
@@ -54,6 +54,7 @@ class _grid_encode(Function):
         ctx.save_for_backward(inputs, embeddings, offsets, dy_dx)
         ctx.dims = [B, D, C, L, S, H, gridtype]
         ctx.calc_grad_inputs = calc_grad_inputs
+        ctx.align_corners = align_corners
 
         return outputs
     
@@ -65,6 +66,7 @@ class _grid_encode(Function):
         inputs, embeddings, offsets, dy_dx = ctx.saved_tensors
         B, D, C, L, S, H, gridtype = ctx.dims
         calc_grad_inputs = ctx.calc_grad_inputs
+        align_corners = ctx.align_corners
 
         # grad: [B, L * C] --> [L, B, C]
         grad = grad.view(B, L, C).permute(1, 0, 2).contiguous()
@@ -76,20 +78,20 @@ class _grid_encode(Function):
         else:
             grad_inputs = torch.zeros(1, device=inputs.device, dtype=embeddings.dtype)
 
-        _backend.grid_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, S, H, calc_grad_inputs, dy_dx, grad_inputs, gridtype)
+        _backend.grid_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, S, H, calc_grad_inputs, dy_dx, grad_inputs, gridtype, align_corners)
 
         if calc_grad_inputs:
             grad_inputs = grad_inputs.to(inputs.dtype)
-            return grad_inputs, grad_embeddings, None, None, None, None, None
+            return grad_inputs, grad_embeddings, None, None, None, None, None, None
         else:
-            return None, grad_embeddings, None, None, None, None, None
+            return None, grad_embeddings, None, None, None, None, None, None
 
 
 grid_encode = _grid_encode.apply
 
 
 class GridEncoder(nn.Module):
-    def __init__(self, input_dim=3, num_levels=16, level_dim=2, per_level_scale=2, base_resolution=16, log2_hashmap_size=19, desired_resolution=None, gridtype='hash'):
+    def __init__(self, input_dim=3, num_levels=16, level_dim=2, per_level_scale=2, base_resolution=16, log2_hashmap_size=19, desired_resolution=None, gridtype='hash', align_corners=False):
         super().__init__()
 
         # the finest resolution desired at the last level, if provided, overridee per_level_scale
@@ -105,9 +107,7 @@ class GridEncoder(nn.Module):
         self.output_dim = num_levels * level_dim
         self.gridtype = gridtype
         self.gridtype_id = _gridtype_to_id[gridtype] # "tiled" or "hash"
-
-        if level_dim % 2 != 0:
-            print('[WARN] detected HashGrid level_dim % 2 != 0, which will cause very slow backward is also enabled fp16! (maybe fix later)')
+        self.align_corners = align_corners
 
         # allocate parameters
         offsets = []
@@ -115,7 +115,7 @@ class GridEncoder(nn.Module):
         self.max_params = 2 ** log2_hashmap_size
         for i in range(num_levels):
             resolution = int(np.ceil(base_resolution * per_level_scale ** i))
-            params_in_level = min(self.max_params, (resolution + 1) ** input_dim) # limit max number
+            params_in_level = min(self.max_params, (resolution if align_corners else resolution + 1) ** input_dim) # limit max number
             params_in_level = int(np.ceil(params_in_level / 8) * 8) # make divisible
             offsets.append(offset)
             offset += params_in_level
@@ -135,7 +135,7 @@ class GridEncoder(nn.Module):
         self.embeddings.data.uniform_(-std, std)
 
     def __repr__(self):
-        return f"GridEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} resolution={self.base_resolution} -> {int(round(self.base_resolution * self.per_level_scale ** (self.num_levels - 1)))} per_level_scale={self.per_level_scale:.4f} params={tuple(self.embeddings.shape)} gridtype={self.gridtype}"
+        return f"GridEncoder: input_dim={self.input_dim} num_levels={self.num_levels} level_dim={self.level_dim} resolution={self.base_resolution} -> {int(round(self.base_resolution * self.per_level_scale ** (self.num_levels - 1)))} per_level_scale={self.per_level_scale:.4f} params={tuple(self.embeddings.shape)} gridtype={self.gridtype} align_corners={self.align_corners}"
     
     def forward(self, inputs, bound=1):
         # inputs: [..., input_dim], normalized real world positions in [-bound, bound]
@@ -148,7 +148,7 @@ class GridEncoder(nn.Module):
         prefix_shape = list(inputs.shape[:-1])
         inputs = inputs.view(-1, self.input_dim)
 
-        outputs = grid_encode(inputs, self.embeddings, self.offsets, self.per_level_scale, self.base_resolution, inputs.requires_grad, self.gridtype_id)
+        outputs = grid_encode(inputs, self.embeddings, self.offsets, self.per_level_scale, self.base_resolution, inputs.requires_grad, self.gridtype_id, self.align_corners)
         outputs = outputs.view(prefix_shape + [self.output_dim])
 
         #print('outputs', outputs.shape, outputs.dtype, outputs.min().item(), outputs.max().item())
