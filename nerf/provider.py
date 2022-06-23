@@ -262,7 +262,7 @@ class NeRFDataset:
 
     def collate(self, index):
 
-        B = len(index) # always 1
+        B = len(index) # a list of length 1
 
         # random pose without gt images.
         if self.rand_pose == 0 or index[0] >= len(self.poses):

@@ -44,7 +44,7 @@ class _grid_encode(Function):
         if calc_grad_inputs:
             dy_dx = torch.empty(B, L * D * C, device=inputs.device, dtype=embeddings.dtype)
         else:
-            dy_dx = torch.empty(1, device=inputs.device, dtype=embeddings.dtype)
+            dy_dx = torch.empty(1, device=inputs.device, dtype=embeddings.dtype) # placeholder... TODO: a better way?
 
         _backend.grid_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, calc_grad_inputs, dy_dx, gridtype, align_corners)
 

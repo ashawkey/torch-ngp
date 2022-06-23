@@ -60,16 +60,20 @@ class OrbitCamera:
 
 
 class NeRFGUI:
-    def __init__(self, opt, trainer, debug=True):
+    def __init__(self, opt, trainer, train_loader=None, debug=True):
         self.opt = opt # shared with the trainer's opt to support in-place modification of rendering parameters.
         self.W = opt.W
         self.H = opt.H
         self.cam = OrbitCamera(opt.W, opt.H, r=opt.radius, fovy=opt.fovy)
-        self.trainer = trainer
         self.debug = debug
         self.bg_color = torch.ones(3, dtype=torch.float32) # default white bg
         self.training = False
         self.step = 0 # training step 
+
+        self.trainer = trainer
+        self.train_loader = train_loader
+        if train_loader is not None:
+            self.trainer.error_map = train_loader._data.error_map
 
         self.render_buffer = np.zeros((self.W, self.H, 3), dtype=np.float32)
         self.need_update = True # camera moved, should reset accumulation
@@ -93,7 +97,7 @@ class NeRFGUI:
         starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
         starter.record()
 
-        outputs = self.trainer.train_gui(self.trainer.train_loader, step=self.train_steps)
+        outputs = self.trainer.train_gui(self.train_loader, step=self.train_steps)
 
         ender.record()
         torch.cuda.synchronize()

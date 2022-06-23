@@ -596,6 +596,10 @@ class Trainer(object):
         
         loader = iter(train_loader)
 
+        # mark untrained grid
+        if self.global_step == 0:
+            self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
+
         for _ in range(step):
             
             # mimic an infinite loop dataloader (in case the total dataset is smaller than step)
@@ -605,13 +609,8 @@ class Trainer(object):
                 loader = iter(train_loader)
                 data = next(loader)
 
-            # mark untrained grid
-            if self.global_step == 0:
-                self.model.mark_untrained_grid(train_loader._data.poses, train_loader._data.intrinsics)
-                self.error_map = train_loader._data.error_map
-
             # update grid every 16 steps
-            if self.model.cuda_ray and self.global_step % 16 == 0:
+            if self.model.cuda_ray and self.global_step % self.opt.update_extra_interval == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
             
@@ -725,7 +724,7 @@ class Trainer(object):
         for data in loader:
             
             # update grid every 16 steps
-            if self.model.cuda_ray and self.global_step % 16 == 0:
+            if self.model.cuda_ray and self.global_step % self.opt.update_extra_interval == 0:
                 with torch.cuda.amp.autocast(enabled=self.fp16):
                     self.model.update_extra_state()
                     

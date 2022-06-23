@@ -51,12 +51,6 @@ class NeRFNetwork(NeRFRenderer):
         self.group_mat_density = [np.diff(rank_mat_density, prepend=0)]
         self.group_vec = [np.diff(rank_vec, prepend=0)]
         self.group_mat = [np.diff(rank_mat, prepend=0)]
-        
-        # for composition
-        # self.offset_vec_density = [0]
-        # self.offset_mat_density = [0]
-        # self.offset_vec = [0]
-        # self.offset_mat = [0]
 
         self.mat_ids = [[0, 1], [0, 2], [1, 2]]
         self.vec_ids = [2, 1, 0]
@@ -153,8 +147,8 @@ class NeRFNetwork(NeRFRenderer):
 
         last_y = None
 
-        offset_vec = oid # self.offset_vec_density[oid]
-        offset_mat = oid # self.offset_mat_density[oid]
+        offset_vec = oid
+        offset_mat = oid
 
         for k in range(K):
 
@@ -166,7 +160,6 @@ class NeRFNetwork(NeRFRenderer):
                            F.grid_sample(self.U_vec_density[3 * offset_vec + 2], vec_coord[[2]], align_corners=False).view(-1, N) # [r, N]
 
                 y = y + (self.S_vec_density[offset_vec] @ vec_feat)
-                #y = y + vec_feat.sum(0, keepdim=True)
 
                 offset_vec += 1
 
@@ -176,7 +169,6 @@ class NeRFNetwork(NeRFRenderer):
                            F.grid_sample(self.U_mat_density[3 * offset_mat + 2], mat_coord[[2]], align_corners=False).view(-1, N) # [r, N]
 
                 y = y + (self.S_mat_density[offset_mat] @ mat_feat) # [out_dim, N]
-                #y = y + mat_feat.sum(0, keepdim=True)
 
                 offset_mat += 1
 
@@ -217,8 +209,8 @@ class NeRFNetwork(NeRFRenderer):
 
         last_y = None
 
-        offset_vec = oid # self.offset_vec[oid]
-        offset_mat = oid # self.offset_mat[oid]
+        offset_vec = oid
+        offset_mat = oid
 
         for k in range(K):
 

@@ -34,8 +34,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="root directory to the LLFF dataset (contains images/ and pose_bounds.npy)")
-    parser.add_argument('--images', type=str, default='images', help="images folder")
-    parser.add_argument('--downscale', type=float, default=1, help="image size down scale")
+    parser.add_argument('--images', type=str, default='images', help="images folder (do not include full path, e.g., just use `images_4`)")
+    parser.add_argument('--downscale', type=float, default=1, help="image size down scale, e.g., 4")
 
     opt = parser.parse_args()
     print(f'[INFO] process {opt.path}')
