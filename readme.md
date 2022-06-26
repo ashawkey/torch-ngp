@@ -4,6 +4,7 @@ This repository contains:
 * A pytorch implementation of the SDF and NeRF part (grid encoder, density grid ray sampler) in [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 * A pytorch implementation of [TensoRF](https://github.com/apchenstu/TensoRF), as described in [_TensoRF: Tensorial Radiance Fields_](https://arxiv.org/abs/2203.09517), adapted to instant-ngp's NeRF framework.
 * A pytorch implementation of [CCNeRF](https://github.com/ashawkey/CCNeRF), as described in [_Compressible-composable NeRF via Rank-residual Decomposition_](https://arxiv.org/abs/2205.14870).
+* [New!] An implementation of [D-NeRF](https://github.com/albertpumarola/D-NeRF) adapted to instant-ngp's framework, as described in [D-NeRF: Neural Radiance Fields for Dynamic Scenes](https://openaccess.thecvf.com/content/CVPR2021/papers/Pumarola_D-NeRF_Neural_Radiance_Fields_for_Dynamic_Scenes_CVPR_2021_paper.pdf).
 * Some experimental features in the NeRF framework (e.g., text-guided NeRF editig similar to [CLIP-NeRF](https://arxiv.org/abs/2112.05139)).
 * A GUI for training/visualizing NeRF!
 
@@ -148,6 +149,11 @@ python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O 
 python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --mode blender --bound 2.0 --scale 0.67 --dt_gamma 0 --max_steps 2048 --test --compose
 # compose + gui, only about 1 FPS without dynamic resolution... just for quick verification of composition results.
 python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --mode blender --bound 2.0 --scale 0.67 --dt_gamma 0 --test --compose --gui
+
+### D-NeRF
+# almost the same as Instant-ngp NeRF, just replace the main script.
+python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --mode blender
+python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --mode blender --gui
 ```
 
 check the `scripts` directory for more provided examples.

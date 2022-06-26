@@ -71,6 +71,6 @@ def get_encoder(encoding, input_dim=3,
         encoder = AshEncoder(input_dim=input_dim, output_dim=16, log2_hashmap_size=log2_hashmap_size, resolution=desired_resolution)
 
     else:
-        raise NotImplementedError()
+        raise NotImplementedError('Unknown encoding mode, choose from [None, frequency, sphere_harmonics, hashgrid, tiledgrid]')
 
     return encoder, encoder.output_dim

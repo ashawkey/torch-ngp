@@ -1,5 +1,6 @@
 ## Update logs
 
+* 6.26: add support for D-NeRF.
 * 6.16: add support for CCNeRF.
 * 6.15: fixed a bug in raymarching, improved PSNR. Density thresh is directly applied on sigmas now (removed the empirical scaling factor).
 * 6.6: fix gridencoder to always use more accurate float32 inputs (coords), slightly improved performance (matched with tcnn).

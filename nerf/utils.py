@@ -940,6 +940,10 @@ class Trainer(object):
 
                     state['model'] = self.model.state_dict()
 
+                    # we don't consider continued training from the best ckpt, so we discard the unneeded density_grid to save some storage (especially important for dnerf)
+                    if 'density_grid' in state['model']:
+                        del state['model']['density_grid']
+
                     if self.ema is not None:
                         self.ema.restore()
                     
@@ -988,7 +992,7 @@ class Trainer(object):
         self.global_step = checkpoint_dict['global_step']
         self.log(f"[INFO] load at epoch {self.epoch}, global step {self.global_step}")
         
-        if self.optimizer and  'optimizer' in checkpoint_dict:
+        if self.optimizer and 'optimizer' in checkpoint_dict:
             try:
                 self.optimizer.load_state_dict(checkpoint_dict['optimizer'])
                 self.log("[INFO] loaded optimizer.")
