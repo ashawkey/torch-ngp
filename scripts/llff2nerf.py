@@ -1,10 +1,9 @@
-from audioop import avg
 import os
 import glob
 import numpy as np
 import math
 import json
-
+import trimesh
 import argparse
 
 # returns point closest to both rays of form o+t*d, and a weight factor that goes to 0 if the lines are parallel
@@ -23,12 +22,39 @@ def closest_point_2_lines(oa, da, ob, db):
     return (oa+ta*da+ob+tb*db) * 0.5, denom
 
 def rotmat(a, b):
-    a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
-    v = np.cross(a, b)
-    c = np.dot(a, b)
-    s = np.linalg.norm(v)
-    kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
+	a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+	v = np.cross(a, b)
+	c = np.dot(a, b)
+	# handle exception for the opposite direction input
+	if c < -1 + 1e-10:
+		return rotmat(a + np.random.uniform(-1e-2, 1e-2, 3), b)
+	s = np.linalg.norm(v)
+	kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+	return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
+
+
+def visualize_poses(poses, size=0.1):
+    # poses: [B, 4, 4]
+    print(f'[vis poses] {poses.shape} average center: {poses[:, :3, 3].mean(0)}')
+
+    axes = trimesh.creation.axis(axis_length=4)
+    sphere = trimesh.creation.icosphere(radius=1)
+    objects = [sphere, axes]
+
+    for pose in poses:
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a]])
+        segs = trimesh.load_path(segs)
+        objects.append(segs)
+
+    trimesh.Scene(objects).show()    
 
 if __name__ == '__main__':
 
@@ -68,6 +94,8 @@ if __name__ == '__main__':
     last_row = np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1)) # (N, 1, 4)
     poses = np.concatenate([poses, last_row], axis=1) # (N, 4, 4) 
 
+    # visualize_poses(poses)
+
     # the following stuff are from colmap2nerf... 
     poses[:, 0:3, 1] *= -1
     poses[:, 0:3, 2] *= -1
@@ -102,6 +130,8 @@ if __name__ == '__main__':
     poses[:, :3, 3] *= 4.0 / avglen
 
     print(f'[INFO] average radius = {avglen}')
+
+    # visualize_poses(poses)
 
     # construct frames
     frames = []

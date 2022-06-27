@@ -37,7 +37,6 @@ if __name__ == '__main__':
     parser.add_argument("--upsample_model_steps", type=int, action="append", default=[2000, 3000, 4000, 5500, 7000])
 
     ### dataset options
-    parser.add_argument('--mode', type=str, default='colmap', help="dataset mode, supports (colmap, blender)")
     parser.add_argument('--color_space', type=str, default='srgb', help="Color space, supports (linear, srgb)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     # (the default value is for the fox dataset)
@@ -104,7 +103,7 @@ if __name__ == '__main__':
         else:
             test_loader = NeRFDataset(opt, device=device, type='test').dataloader()
 
-            if opt.mode == 'blender':
+            if test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
@@ -140,7 +139,7 @@ if __name__ == '__main__':
             # also test
             test_loader = NeRFDataset(opt, device=device, type='test').dataloader()
             
-            if opt.mode == 'blender':
+            if test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.

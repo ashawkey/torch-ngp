@@ -94,7 +94,6 @@ class NeRFDataset:
         self.type = type # train, val, test
         self.downscale = downscale
         self.root_path = opt.path
-        self.mode = opt.mode # colmap, blender
         self.preload = opt.preload # preload data into GPU
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
@@ -104,6 +103,12 @@ class NeRFDataset:
         self.num_rays = self.opt.num_rays if self.training else -1
 
         self.rand_pose = opt.rand_pose
+
+        # auto-detect transforms.json and split mode.
+        if os.path.exists(os.path.join(self.root_path, 'transforms.json')):
+            self.mode = 'colmap' # manually split, use view-interpolation for test.
+        elif os.path.exists(os.path.join(self.root_path, 'transforms_train.json')):
+            self.mode = 'blender' # provided split
 
         # load nerf-compatible format data.
         if self.mode == 'colmap':
@@ -314,4 +319,5 @@ class NeRFDataset:
             size += size // self.rand_pose # index >= size means we use random pose.
         loader = DataLoader(list(range(size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
         loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
+        loader.has_gt = self.images is not None
         return loader

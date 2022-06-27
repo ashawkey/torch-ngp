@@ -66,7 +66,7 @@ First time running will take some time to compile the CUDA extensions.
 ```bash
 ### Instant-ngp NeRF
 # train with different backbones (with slower pytorch ray marching)
-# for the colmap dataset, the default dataset setting `--mode colmap --bound 2 --scale 0.33` is used.
+# for the colmap dataset, the default dataset setting `--bound 2 --scale 0.33` is used.
 python main_nerf.py data/fox --workspace trial_nerf # fp32 mode
 python main_nerf.py data/fox --workspace trial_nerf --fp16 # fp16 mode (pytorch amp)
 python main_nerf.py data/fox --workspace trial_nerf --fp16 --ff # fp16 mode + FFMLP (this repo's implementation)
@@ -97,13 +97,12 @@ python main_nerf.py data/fox --workspace trial_nerf -O --gui
 # test mode for GUI
 python main_nerf.py data/fox --workspace trial_nerf -O --gui --test
 
-# for the blender dataset, you should add `--mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear`
-# --mode specifies dataset type ('blender' or 'colmap')
+# for the blender dataset, you should add `--bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear`
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
 # --dt_gamma controls the adaptive ray marching speed, set to 0 turns it off.
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear --gui
 
 # for the LLFF dataset, you should first convert it to nerf-compatible format:
 python scripts/llff2nerf.py data/nerf_llff_data/fern # by default it use full-resolution images, and write `transforms.json` to the folder
@@ -115,8 +114,8 @@ python main_nerf.py data/nerf_llff_data/fern --workspace trial_nerf -O --gui
 # for the Tanks&Temples dataset, you should first convert it to nerf-compatible format:
 python scripts/tanks2nerf.py data/TanksAndTemple/Family # write `trainsforms_{split}.json` for [train, val, test]
 # then you can train as a blender dataset (you'll need to tune the scale & bound if necessary)
-python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O --mode blender --bound 1.0 --scale 0.33 --dt_gamma 0
-python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O --mode blender --bound 1.0 --scale 0.33 --dt_gamma 0 --gui
+python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O --bound 1.0 --scale 0.33 --dt_gamma 0
+python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O --bound 1.0 --scale 0.33 --dt_gamma 0 --gui
 
 # for custom dataset, you should:
 # 1. take a video / many photos from different views 
@@ -138,22 +137,22 @@ python main_sdf.py data/armadillo.obj --workspace trial_sdf --fp16 --test
 ### TensoRF
 # almost the same as Instant-ngp NeRF, just replace the main script.
 python main_tensoRF.py data/fox --workspace trial_tensoRF -O
-python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF -O --mode blender --bound 1.0 --scale 0.8 --dt_gamma 0 
+python main_tensoRF.py data/nerf_synthetic/lego --workspace trial_tensoRF -O --bound 1.0 --scale 0.8 --dt_gamma 0 
 
 ### CCNeRF
 # training on single objects, turn on --error_map for better quality.
-python main_CCNeRF.py data/nerf_synthetic/chair --workspace trial_cc_chair -O --mode blender --bound 1.0 --scale 0.67 --dt_gamma 0 --error_map
-python main_CCNeRF.py data/nerf_synthetic/ficus --workspace trial_cc_ficus -O --mode blender --bound 1.0 --scale 0.67 --dt_gamma 0 --error_map
-python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --mode blender --bound 1.0 --scale 0.67 --dt_gamma 0 --error_map
+python main_CCNeRF.py data/nerf_synthetic/chair --workspace trial_cc_chair -O --bound 1.0 --scale 0.67 --dt_gamma 0 --error_map
+python main_CCNeRF.py data/nerf_synthetic/ficus --workspace trial_cc_ficus -O --bound 1.0 --scale 0.67 --dt_gamma 0 --error_map
+python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --bound 1.0 --scale 0.67 --dt_gamma 0 --error_map
 # compose, use a larger bound and more samples per ray for better quality.
-python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --mode blender --bound 2.0 --scale 0.67 --dt_gamma 0 --max_steps 2048 --test --compose
+python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --bound 2.0 --scale 0.67 --dt_gamma 0 --max_steps 2048 --test --compose
 # compose + gui, only about 1 FPS without dynamic resolution... just for quick verification of composition results.
-python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --mode blender --bound 2.0 --scale 0.67 --dt_gamma 0 --test --compose --gui
+python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O --bound 2.0 --scale 0.67 --dt_gamma 0 --test --compose --gui
 
 ### D-NeRF
 # almost the same as Instant-ngp NeRF, just replace the main script.
-python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --mode blender
-python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --mode blender --gui
+python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0
+python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
 ```
 
 check the `scripts` directory for more provided examples.

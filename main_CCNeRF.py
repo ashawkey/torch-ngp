@@ -39,7 +39,6 @@ if __name__ == '__main__':
     parser.add_argument("--upsample_model_steps", type=int, action="append", default=[2000, 3000, 4000, 5500, 7000])
 
     ### dataset options
-    parser.add_argument('--mode', type=str, default='blender', help="dataset mode, supports (colmap, blender)")
     parser.add_argument('--color_space', type=str, default='linear', help="Color space, supports (linear, srgb)")
     parser.add_argument('--preload', action='store_true', help="preload all data into GPU, accelerate training but use more GPU memory")
     parser.add_argument('--bound', type=float, default=1, help="assume the scene is bounded in box[-bound, bound]^3, if > 1, will invoke adaptive ray marching.")
@@ -161,7 +160,7 @@ if __name__ == '__main__':
             # compose mode have no gt, do not evaulate
             if opt.compose:
                 trainer.test(test_loader, save_path=os.path.join(opt.workspace, 'compose'))
-            elif opt.mode == 'blender':
+            elif test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
             else:
                 trainer.test(test_loader) # colmap doesn't have gt, so just test.
@@ -215,7 +214,7 @@ if __name__ == '__main__':
                 print(model)
                 trainer.save_checkpoint(name, full=False, remove_old=False)
 
-                if opt.mode == 'blender':
+                if test_loader.has_gt:
                     trainer.evaluate(test_loader, name=name) # blender has gt, so evaluate it.
                 else:
                     trainer.test(test_loader, name=name) # colmap doesn't have gt, so just test.

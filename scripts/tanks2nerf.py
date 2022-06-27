@@ -1,6 +1,4 @@
-from audioop import avg
 import os
-import glob
 import numpy as np
 import math
 import json
@@ -23,12 +21,15 @@ def closest_point_2_lines(oa, da, ob, db):
     return (oa+ta*da+ob+tb*db) * 0.5, denom
 
 def rotmat(a, b):
-    a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
-    v = np.cross(a, b)
-    c = np.dot(a, b)
-    s = np.linalg.norm(v)
-    kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
+	a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+	v = np.cross(a, b)
+	c = np.dot(a, b)
+	# handle exception for the opposite direction input
+	if c < -1 + 1e-10:
+		return rotmat(a + np.random.uniform(-1e-2, 1e-2, 3), b)
+	s = np.linalg.norm(v)
+	kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+	return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
 
 if __name__ == '__main__':
 

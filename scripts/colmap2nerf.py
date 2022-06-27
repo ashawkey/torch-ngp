@@ -10,7 +10,7 @@
 
 import argparse
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import numpy as np
 import json
@@ -128,12 +128,15 @@ def qvec2rotmat(qvec):
     ])
 
 def rotmat(a, b):
-    a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
-    v = np.cross(a, b)
-    c = np.dot(a, b)
-    s = np.linalg.norm(v)
-    kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
+	a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+	v = np.cross(a, b)
+	c = np.dot(a, b)
+	# handle exception for the opposite direction input
+	if c < -1 + 1e-10:
+		return rotmat(a + np.random.uniform(-1e-2, 1e-2, 3), b)
+	s = np.linalg.norm(v)
+	kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+	return np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2 + 1e-10))
 
 def closest_point_2_lines(oa, da, ob, db): # returns point closest to both rays of form o+t*d, and a weight factor that goes to 0 if the lines are parallel
     da = da / np.linalg.norm(da)
@@ -271,6 +274,7 @@ if __name__ == "__main__":
                 t = tvec.reshape([3,1])
                 m = np.concatenate([np.concatenate([R, t], 1), bottom], 0)
                 c2w = np.linalg.inv(m)
+                
                 c2w[0:3, 2] *= -1 # flip the y and z axis
                 c2w[0:3, 1] *= -1
                 c2w = c2w[[1, 0, 2, 3],:] # swap y and z
