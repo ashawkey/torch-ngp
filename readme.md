@@ -10,7 +10,7 @@ This repository contains:
 
 ### [Gallery](assets/gallery.md) | [Update Logs](assets/update_logs.md)
 
-https://user-images.githubusercontent.com/25863658/155265815-c608254f-2f00-4664-a39d-e00eae51ca59.mp4
+https://user-images.githubusercontent.com/25863658/176174011-e7b7c4ab-9b6f-4f65-9952-7eceafe609b7.mp4
 
 https://user-images.githubusercontent.com/25863658/175821784-63ba79f6-29be-47b5-b3fc-dab5282fce7a.mp4
 
