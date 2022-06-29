@@ -115,6 +115,8 @@ class NeRFDataset:
             self.mode = 'colmap' # manually split, use view-interpolation for test.
         elif os.path.exists(os.path.join(self.root_path, 'transforms_train.json')):
             self.mode = 'blender' # provided split
+        else:
+            raise NotImplementedError(f'[NeRFDataset] Cannot find transforms*.json under {self.root_path}')
 
         # load nerf-compatible format data.
         if self.mode == 'colmap':
@@ -166,8 +168,8 @@ class NeRFDataset:
             f0, f1 = np.random.choice(frames, 2, replace=False)
             pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
             pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
-            time0 = f0['time'] if 'time' in f0 else 0
-            time1 = f1['time'] if 'time' in f1 else 0
+            time0 = f0['time'] if 'time' in f0 else int(os.path.basename(f0['file_path'])[:-4])
+            time1 = f1['time'] if 'time' in f1 else int(os.path.basename(f1['file_path'])[:-4])
             rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
             slerp = Slerp([0, 1], rots)
 
@@ -182,6 +184,13 @@ class NeRFDataset:
                 self.poses.append(pose)
                 time = (1 - ratio) * time0 + ratio * time1
                 self.times.append(time)
+            
+            # manually find max time to normalize
+            if 'time' not in f0:
+                max_time = 0
+                for f in frames:
+                    max_time = max(max_time, int(os.path.basename(f['file_path'])[:-4]))
+                self.times = [t / max_time for t in self.times]
 
         else:
             # for colmap, manually split a valid set (the first frame).
@@ -239,7 +248,10 @@ class NeRFDataset:
         if self.images is not None:
             self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
         self.times = torch.from_numpy(np.asarray(self.times, dtype=np.float32)).view(-1, 1) # [N, 1]
-        self.times = self.times / self.times.max() # normalize to [0, 1]
+
+        # manual normalize
+        if self.times.max() > 1:
+            self.times = self.times / (self.times.max() + 1e-8) # normalize to [0, 1]
         
         # calculate mean radius of all camera poses
         self.radius = self.poses[:, :3, 3].norm(dim=-1).mean(0).item()

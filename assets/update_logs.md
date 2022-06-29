@@ -1,6 +1,9 @@
 ## Update logs
 
+* 6.29: add support for HyperNeRF's dataset.
+    * we use a simplified pinhole camera model, may introduce bias.
 * 6.26: add support for D-NeRF.
+    * issue: to enable the `--cuda_ray` in a dynamic scene, we have to record different density grid for different time. This lead to much slower `update_extra_status` and much larger `density_grid` since there is an additional time dimension. Current work arounds: (1) only use 64 time intervals, (2) update it every 100 steps (compared to the 16 steps in static nerf), (3) stop updation after 100 times since the grid should be stable now.
 * 6.16: add support for CCNeRF.
 * 6.15: fixed a bug in raymarching, improved PSNR. Density thresh is directly applied on sigmas now (removed the empirical scaling factor).
 * 6.6: fix gridencoder to always use more accurate float32 inputs (coords), slightly improved performance (matched with tcnn).

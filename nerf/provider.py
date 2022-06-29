@@ -116,6 +116,8 @@ class NeRFDataset:
             self.mode = 'colmap' # manually split, use view-interpolation for test.
         elif os.path.exists(os.path.join(self.root_path, 'transforms_train.json')):
             self.mode = 'blender' # provided split
+        else:
+            raise NotImplementedError(f'[NeRFDataset] Cannot find transforms*.json under {self.root_path}')
 
         # load nerf-compatible format data.
         if self.mode == 'colmap':

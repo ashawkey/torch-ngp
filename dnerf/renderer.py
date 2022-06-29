@@ -282,7 +282,7 @@ class NeRFRenderer(nn.Module):
             bg_color = 1
 
         # determine the correct frame of density grid to use
-        t = torch.floor(time[0][0] * self.time_size).clamp(max=self.time_size - 1).long()
+        t = torch.floor(time[0][0] * self.time_size).clamp(min=0, max=self.time_size - 1).long()
 
         results = {}
 

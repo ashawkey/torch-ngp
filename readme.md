@@ -125,6 +125,7 @@ python main_nerf.py data/TanksAndTemple/Family --workspace trial_nerf_family -O 
 # 3. call the preprocess code: (should install ffmpeg and colmap first! refer to the file for more options)
 python scripts/colmap2nerf.py --video ./data/custom/video.mp4 --run_colmap # if use video
 python scripts/colmap2nerf.py --images ./data/custom/images/ --run_colmap # if use images
+python scripts/colmap2nerf.py --video ./data/custom/video.mp4 --run_colmap --dynamic # if the scene is dynamic (for D-NeRF settings), add the time for each frame.
 # 4. it should create the transform.json, and you can train with: (you'll need to try with different scale & bound & dt_gamma to make the object correctly located in the bounding box and render fluently.)
 python main_nerf.py data/custom --workspace trial_nerf_custom -O --gui --scale 2.0 --bound 1.0 --dt_gamma 0.02
 
@@ -155,6 +156,9 @@ python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O 
 # almost the same as Instant-ngp NeRF, just replace the main script.
 python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0
 python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
+# for the hypernerf dataset, first convert it into nerf-compatible format:
+python scripts/hyper2nerf.py data/split-cookie --downscale 2 # will generate transforms*.json
+python main_dnerf.py data/split-cookie/ --workspace trial_dnerf_cookies -O --bound 1 --scale 0.3 --dt_gamma 0
 ```
 
 check the `scripts` directory for more provided examples.

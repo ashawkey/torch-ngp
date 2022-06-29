@@ -26,6 +26,7 @@ def parse_args():
     parser.add_argument("--video", default="", help="input path to the video")
     parser.add_argument("--images", default="", help="input path to the images folder, ignored if --video is provided")
     parser.add_argument("--run_colmap", action="store_true", help="run colmap first on the image folder")
+    parser.add_argument("--dynamic", action="store_true", help="for dynamic scene, extraly save time calculated from frame index.")
 
     parser.add_argument("--video_fps", default=3)
     parser.add_argument("--time_slice", default="", help="time (in seconds) in the format t1,t2 within which the images should be generated from the video. eg: \"--time_slice '10,300'\" will generate images only from 10th second to 300th second of the video")
@@ -231,7 +232,9 @@ if __name__ == "__main__":
 
     with open(os.path.join(TEXT_FOLDER, "images.txt"), "r") as f:
         i = 0
+
         bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
+
         out = {
             "camera_angle_x": angle_x,
             "camera_angle_y": angle_y,
@@ -252,12 +255,15 @@ if __name__ == "__main__":
         up = np.zeros(3)
         for line in f:
             line = line.strip()
+
             if line[0] == "#":
                 continue
+
             i = i + 1
             if i < SKIP_EARLY*2:
                 continue
-            if  i % 2 == 1:
+
+            if i % 2 == 1:
                 elems = line.split(" ") # 1-4 is quat, 5-7 is trans, 9ff is filename (9, if filename contains no spaces)
 
                 name = '_'.join(elems[9:])
@@ -265,13 +271,13 @@ if __name__ == "__main__":
                 rel_name = full_name[len(root_dir) + 1:]
 
                 b = sharpness(full_name)
-                print(name, "sharpness =",b)
+                # print(name, "sharpness =",b)
 
                 image_id = int(elems[0])
                 qvec = np.array(tuple(map(float, elems[1:5])))
                 tvec = np.array(tuple(map(float, elems[5:8])))
                 R = qvec2rotmat(-qvec)
-                t = tvec.reshape([3,1])
+                t = tvec.reshape([3, 1])
                 m = np.concatenate([np.concatenate([R, t], 1), bottom], 0)
                 c2w = np.linalg.inv(m)
                 
@@ -282,12 +288,19 @@ if __name__ == "__main__":
 
                 up += c2w[0:3, 1]
 
-                frame = {"file_path" : rel_name, "sharpness" : b, "transform_matrix" : c2w}
+                frame = {
+                    "file_path": rel_name, 
+                    "sharpness": b, 
+                    "transform_matrix": c2w
+                }
+
                 out["frames"].append(frame)
 
-    nframes = len(out["frames"])
+    N = len(out["frames"])
     up = up / np.linalg.norm(up)
-    print("up vector was", up)
+
+    print("[INFO] up vector was", up)
+
     R = rotmat(up, [0, 0, 1]) # rotate up vector to [0,0,1]
     R = np.pad(R, [0, 1])
     R[-1, -1] = 1
@@ -296,7 +309,7 @@ if __name__ == "__main__":
         f["transform_matrix"] = np.matmul(R, f["transform_matrix"]) # rotate up to be the z axis
 
     # find a central point they are all looking at
-    print("computing center of attention...")
+    print("[INFO] computing center of attention...")
     totw = 0.0
     totp = np.array([0.0, 0.0, 0.0])
     for f in out["frames"]:
@@ -308,21 +321,27 @@ if __name__ == "__main__":
                 totp += p * w
                 totw += w
     totp /= totw
-    print(totp) # the cameras are looking at totp
     for f in out["frames"]:
         f["transform_matrix"][0:3,3] -= totp
-
     avglen = 0.
     for f in out["frames"]:
         avglen += np.linalg.norm(f["transform_matrix"][0:3,3])
-    avglen /= nframes
-    print("avg camera distance from origin", avglen)
+    avglen /= N
+    print("[INFO] avg camera distance from origin", avglen)
     for f in out["frames"]:
         f["transform_matrix"][0:3,3] *= 4.0 / avglen # scale to "nerf sized"
 
+    # sort frames by id
+    out["frames"].sort(key=lambda d: d['file_path'])
+
+    # add time if scene is dynamic
+    if args.dynamic:
+        for i, f in enumerate(out["frames"]):
+            f['time'] = i / N
+
     for f in out["frames"]:
         f["transform_matrix"] = f["transform_matrix"].tolist()
-    print(nframes,"frames")
-    print(f"writing {OUT_PATH}")
+
+    print(f"[INFO] writing {N} frames to {OUT_PATH}")
     with open(OUT_PATH, "w") as outfile:
         json.dump(out, outfile, indent=2)

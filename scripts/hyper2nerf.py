@@ -63,19 +63,35 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="root directory to the HyperNeRF dataset (contains camera/, rgb/, dataset.json, scene.json)")
     parser.add_argument('--downscale', type=int, default=2, help="image size down scale, choose from [2, 4, 8, 16], e.g., 8")
+    parser.add_argument('--interval', type=int, default=4, help="used for interp dataset's train/val split, should > 2 and be even")
 
     opt = parser.parse_args()
     
-    #print(f'[WARN]')
-
     print(f'[INFO] process {opt.path}')
     
     # load data
     with open(os.path.join(opt.path, 'dataset.json'), 'r') as f:
         json_dataset = json.load(f)
 
-    #N = json_dataset['count']
-    ids = json_dataset['ids']
+    names = json_dataset['ids']
+    val_names = json_dataset['val_ids']
+    
+    # data split mode following hypernerf (vrig / interp)
+    if len(val_names) > 0:
+        train_names = json_dataset['train_ids']
+        val_ids = []
+        train_ids = []
+        for i, name in enumerate(names):
+            if name in val_names:
+                val_ids.append(i)
+            elif name in train_names:
+                train_ids.append(i)
+    else:
+        all_ids = np.arange(len(names))
+        train_ids = all_ids[::opt.interval]
+        val_ids = (train_ids[:-1] + train_ids[1:]) // 2
+    
+    print(f'[INFO] train_ids: {len(train_ids)}, val_ids: {len(val_ids)}')
 
     with open(os.path.join(opt.path, 'scene.json'), 'r') as f:
         json_scene = json.load(f)
@@ -85,32 +101,30 @@ if __name__ == '__main__':
 
     with open(os.path.join(opt.path, 'metadata.json'), 'r') as f:
         json_meta = json.load(f)
-
-    # TODO: we convert it to colmap mode (only a transforms.json)
     
     images = []
     times = []
     poses = []
     H, W, f, cx, cy = None, None, None, None, None
-    for i, idx in enumerate(ids):
 
-        #if i > 10: break
-        #if i % 4 != 0: continue
+    for name in names:
 
         # load image
-        images.append(os.path.join('rgb', f'{opt.downscale}x', f'{idx}.png'))
+        images.append(os.path.join('rgb', f'{opt.downscale}x', f'{name}.png'))
 
         # load time
-        times.append(json_meta[idx]['time_id'])
+        times.append(json_meta[name]['time_id'])
 
         # load pose
-        with open(os.path.join(opt.path, 'camera', f'{idx}.json'), 'r') as f:
+        with open(os.path.join(opt.path, 'camera', f'{name}.json'), 'r') as f:
             cam = json.load(f)
-        # we use a simplified camera model rather than the original openCV camera model... hope it won't influence results seriously...
+
+        # TODO: we use a simplified pinhole camera model rather than the original openCV camera model... hope it won't influence results seriously...
+
         pose = np.eye(4, 4)
-        pose[:3, :3] = np.array(cam['orientation'])
-        pose[:3, 3] = (np.array(cam['position']) - center) * scale * 4 # TODO: empirical..
-        #pose[:3, 3] = np.array(cam['position'])
+        pose[:3, :3] = np.array(cam['orientation']).T # it works...
+        #pose[:3, 3] = (np.array(cam['position']) - center) * scale * 4
+        pose[:3, 3] = np.array(cam['position'])
 
         # CHECK: simply assume all intrinsic are same ?
         W, H = cam['image_size'] # before scale
@@ -133,13 +147,9 @@ if __name__ == '__main__':
 
     print(f'[INFO] H = {H}, W = {W}, fl = {fl} (downscale = {opt.downscale})')
 
-    visualize_poses(poses)
-
-    # simple flip
-    # poses[:, :, 1] *= -1
-    # poses[:, :, 2] *= -1
+    # visualize_poses(poses)
     
-    # # the following stuff are from colmap2nerf... 
+    # the following stuff are from colmap2nerf... 
     poses[:, 0:3, 1] *= -1
     poses[:, 0:3, 2] *= -1
     poses = poses[:, [1, 0, 2, 3], :] # swap y and z
@@ -153,49 +163,77 @@ if __name__ == '__main__':
 
     poses = R @ poses
 
-    # totw = 0.0
-    # totp = np.array([0.0, 0.0, 0.0])
-    # for i in range(N):
-    #     mf = poses[i, :3, :]
-    #     for j in range(i + 1, N):
-    #         mg = poses[j, :3, :]
-    #         p, w = closest_point_2_lines(mf[:,3], mf[:,2], mg[:,3], mg[:,2])
-    #         #print(i, j, p, w)
-    #         if w > 0.01:
-    #             totp += p * w
-    #             totw += w
-    # totp /= totw
-    # print(f'[INFO] totp = {totp}')
-    # poses[:, :3, 3] -= totp
-    # avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean()
-    # poses[:, :3, 3] *= 4.0 / avglen
-    # print(f'[INFO] average radius = {avglen}')
+    totw = 0.0
+    totp = np.array([0.0, 0.0, 0.0])
+    for i in range(N):
+        mf = poses[i, :3, :]
+        for j in range(i + 1, N):
+            mg = poses[j, :3, :]
+            p, w = closest_point_2_lines(mf[:,3], mf[:,2], mg[:,3], mg[:,2])
+            #print(i, j, p, w)
+            if w > 0.01:
+                totp += p * w
+                totw += w
+    totp /= totw
+    print(f'[INFO] totp = {totp}')
+    poses[:, :3, 3] -= totp
+    avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean()
+    poses[:, :3, 3] *= 4.0 / avglen
+    print(f'[INFO] average radius = {avglen}')
 
-    visualize_poses(poses)
+    # visualize_poses(poses)
 
     # construct frames
-    frames = []
-    for i in range(N):
-        frames.append({
+    train_frames = []
+    for i in train_ids:
+        train_frames.append({
             'file_path': images[i],
             'time': float(times[i]),
             'transform_matrix': poses[i].tolist(),
         })
 
-    # construct a transforms.json
-    transforms = {
+    val_frames = []
+    for i in val_ids:
+        val_frames.append({
+            'file_path': images[i],
+            'time': float(times[i]),
+            'transform_matrix': poses[i].tolist(),
+        })
+
+    # construct transforms.json
+    transforms_train = {
         'w': W,
         'h': H,
         'fl_x': fl,
         'fl_y': fl,
         'cx': cx,
         'cy': cy,
-        'frames': frames,
+        'frames': train_frames,
+    }
+    transforms_val = {
+        'w': W,
+        'h': H,
+        'fl_x': fl,
+        'fl_y': fl,
+        'cx': cx,
+        'cy': cy,
+        'frames': val_frames,
     }
 
     # write
-    output_path = os.path.join(opt.path, 'transforms.json')
+    output_path = os.path.join(opt.path, 'transforms_train.json')
     print(f'[INFO] write to {output_path}')
     with open(output_path, 'w') as f:
-        json.dump(transforms, f, indent=2)
+        json.dump(transforms_train, f, indent=2)
+    
+    output_path = os.path.join(opt.path, 'transforms_val.json')
+    print(f'[INFO] write to {output_path}')
+    with open(output_path, 'w') as f:
+        json.dump(transforms_val, f, indent=2)
+
+    # test is the same as val
+    output_path = os.path.join(opt.path, 'transforms_test.json')
+    print(f'[INFO] write to {output_path}')
+    with open(output_path, 'w') as f:
+        json.dump(transforms_val, f, indent=2)
 
