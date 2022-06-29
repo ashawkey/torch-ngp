@@ -35,26 +35,29 @@ def rotmat(a, b):
 
 def visualize_poses(poses, size=0.1):
     # poses: [B, 4, 4]
-    print(f'[vis poses] {poses.shape} average center: {poses[:, :3, 3].mean(0)}')
 
     axes = trimesh.creation.axis(axis_length=4)
-    sphere = trimesh.creation.icosphere(radius=1)
-    objects = [sphere, axes]
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
 
     for pose in poses:
         # a camera is visualized with 8 line segments.
         pos = pose[:3, 3]
-        
         a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
         b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
         c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
         d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
 
-        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a]])
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
         segs = trimesh.load_path(segs)
         objects.append(segs)
 
-    trimesh.Scene(objects).show()    
+    trimesh.Scene(objects).show()
 
 if __name__ == '__main__':
 
@@ -96,7 +99,7 @@ if __name__ == '__main__':
 
     # visualize_poses(poses)
 
-    # the following stuff are from colmap2nerf... 
+    # the following stuff are from colmap2nerf... [flower fails, the camera must be in-ward focusing...]
     poses[:, 0:3, 1] *= -1
     poses[:, 0:3, 2] *= -1
     poses = poses[:, [1, 0, 2, 3], :] # swap y and z
@@ -124,11 +127,8 @@ if __name__ == '__main__':
     totp /= totw
     print(f'[INFO] totp = {totp}')
     poses[:, :3, 3] -= totp
-
     avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean()
-
     poses[:, :3, 3] *= 4.0 / avglen
-
     print(f'[INFO] average radius = {avglen}')
 
     # visualize_poses(poses)

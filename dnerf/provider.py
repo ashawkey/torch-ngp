@@ -15,12 +15,12 @@ from .utils import get_rays, srgb_to_linear
 
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
-def nerf_matrix_to_ngp(pose, scale=0.33):
+def nerf_matrix_to_ngp(pose, scale=0.33, offset=[0, 0, 0]):
     # for the fox dataset, 0.33 scales camera radius to ~ 2
     new_pose = np.array([
-        [pose[1, 0], -pose[1, 1], -pose[1, 2], pose[1, 3] * scale],
-        [pose[2, 0], -pose[2, 1], -pose[2, 2], pose[2, 3] * scale],
-        [pose[0, 0], -pose[0, 1], -pose[0, 2], pose[0, 3] * scale],
+        [pose[1, 0], -pose[1, 1], -pose[1, 2], pose[1, 3] * scale + offset[0]],
+        [pose[2, 0], -pose[2, 1], -pose[2, 2], pose[2, 3] * scale + offset[1]],
+        [pose[0, 0], -pose[0, 1], -pose[0, 2], pose[0, 3] * scale + offset[2]],
         [0, 0, 0, 1],
     ], dtype=np.float32)
     return new_pose
@@ -30,8 +30,9 @@ def visualize_poses(poses, size=0.1):
     # poses: [B, 4, 4]
 
     axes = trimesh.creation.axis(axis_length=4)
-    sphere = trimesh.creation.icosphere(radius=1)
-    objects = [axes, sphere]
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
 
     for pose in poses:
         # a camera is visualized with 8 line segments.
@@ -41,7 +42,11 @@ def visualize_poses(poses, size=0.1):
         c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
         d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
 
-        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a]])
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
         segs = trimesh.load_path(segs)
         objects.append(segs)
 
@@ -96,6 +101,7 @@ class NeRFDataset:
         self.root_path = opt.path
         self.preload = opt.preload # preload data into GPU
         self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
+        self.offset = opt.offset # camera offset
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
         self.fp16 = opt.fp16 # if preload, load into fp16.
 
@@ -158,19 +164,24 @@ class NeRFDataset:
             
             # choose two random poses, and interpolate between.
             f0, f1 = np.random.choice(frames, 2, replace=False)
-            pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), scale=self.scale) # [4, 4]
-            pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), scale=self.scale) # [4, 4]
+            pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
+            pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
+            time0 = f0['time'] if 'time' in f0 else 0
+            time1 = f1['time'] if 'time' in f1 else 0
             rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
             slerp = Slerp([0, 1], rots)
 
             self.poses = []
             self.images = None
+            self.times = []
             for i in range(n_test + 1):
                 ratio = np.sin(((i / n_test) - 0.5) * np.pi) * 0.5 + 0.5
                 pose = np.eye(4, dtype=np.float32)
                 pose[:3, :3] = slerp(ratio).as_matrix()
                 pose[:3, 3] = (1 - ratio) * pose0[:3, 3] + ratio * pose1[:3, 3]
                 self.poses.append(pose)
+                time = (1 - ratio) * time0 + ratio * time1
+                self.times.append(time)
 
         else:
             # for colmap, manually split a valid set (the first frame).
@@ -196,7 +207,7 @@ class NeRFDataset:
                     continue
                 
                 pose = np.array(f['transform_matrix'], dtype=np.float32) # [4, 4]
-                pose = nerf_matrix_to_ngp(pose, scale=self.scale)
+                pose = nerf_matrix_to_ngp(pose, scale=self.scale, offset=self.offset)
 
                 image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED) # [H, W, 3] o [H, W, 4]
                 if self.H is None or self.W is None:
@@ -218,7 +229,7 @@ class NeRFDataset:
                 if 'time' in f:
                     time = f['time']
                 else:
-                    time = 0 # assume static scene
+                    time = int(os.path.basename(f['file_path'])[:-4]) # assume frame index as time
 
                 self.poses.append(pose)
                 self.images.append(image)
@@ -228,6 +239,7 @@ class NeRFDataset:
         if self.images is not None:
             self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
         self.times = torch.from_numpy(np.asarray(self.times, dtype=np.float32)).view(-1, 1) # [N, 1]
+        self.times = self.times / self.times.max() # normalize to [0, 1]
         
         # calculate mean radius of all camera poses
         self.radius = self.poses[:, :3, 3].norm(dim=-1).mean(0).item()
@@ -240,7 +252,7 @@ class NeRFDataset:
             self.error_map = None
 
         # [debug] uncomment to view all training poses.
-        visualize_poses(self.poses.numpy())
+        # visualize_poses(self.poses.numpy())
 
         # [debug] uncomment to view examples of randomly generated poses.
         # visualize_poses(rand_poses(100, self.device, radius=self.radius).cpu().numpy())
@@ -271,8 +283,8 @@ class NeRFDataset:
         else:
             raise RuntimeError('Failed to load focal length, please check the transforms.json!')
 
-        cx = (transform['cx'] / downscale) if 'cx' in transform else (self.H / 2)
-        cy = (transform['cy'] / downscale) if 'cy' in transform else (self.W / 2)
+        cx = (transform['cx'] / downscale) if 'cx' in transform else (self.W / 2)
+        cy = (transform['cy'] / downscale) if 'cy' in transform else (self.H / 2)
     
         self.intrinsics = np.array([fl_x, fl_y, cx, cy])
 

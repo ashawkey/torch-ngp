@@ -8,22 +8,25 @@ import trimesh
 
 def visualize_poses(poses, size=0.1):
     # poses: [B, 4, 4]
-    print(f'[vis poses] {poses.shape} average center: {poses[:, :3, 3].mean(0)}')
 
     axes = trimesh.creation.axis(axis_length=4)
-    sphere = trimesh.creation.icosphere(radius=1)
-    objects = [sphere, axes]
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
 
     for pose in poses:
         # a camera is visualized with 8 line segments.
         pos = pose[:3, 3]
-        
         a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
         b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
         c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
         d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
 
-        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a]])
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
         segs = trimesh.load_path(segs)
         objects.append(segs)
 
@@ -71,7 +74,7 @@ if __name__ == '__main__':
     with open(os.path.join(opt.path, 'dataset.json'), 'r') as f:
         json_dataset = json.load(f)
 
-    N = json_dataset['count']
+    #N = json_dataset['count']
     ids = json_dataset['ids']
 
     with open(os.path.join(opt.path, 'scene.json'), 'r') as f:
@@ -83,13 +86,17 @@ if __name__ == '__main__':
     with open(os.path.join(opt.path, 'metadata.json'), 'r') as f:
         json_meta = json.load(f)
 
-    # seems there is no val_ids, we convert it to colmap mode (only a transforms.json)
+    # TODO: we convert it to colmap mode (only a transforms.json)
     
     images = []
     times = []
     poses = []
     H, W, f, cx, cy = None, None, None, None, None
-    for idx in ids:
+    for i, idx in enumerate(ids):
+
+        #if i > 10: break
+        #if i % 4 != 0: continue
+
         # load image
         images.append(os.path.join('rgb', f'{opt.downscale}x', f'{idx}.png'))
 
@@ -102,10 +109,11 @@ if __name__ == '__main__':
         # we use a simplified camera model rather than the original openCV camera model... hope it won't influence results seriously...
         pose = np.eye(4, 4)
         pose[:3, :3] = np.array(cam['orientation'])
-        pose[:3, 3] = (np.array(cam['position']) - center) * scale * 3
+        pose[:3, 3] = (np.array(cam['position']) - center) * scale * 4 # TODO: empirical..
+        #pose[:3, 3] = np.array(cam['position'])
 
         # CHECK: simply assume all intrinsic are same ?
-        H, W = cam['image_size'] # before scale
+        W, H = cam['image_size'] # before scale
         cx, cy = cam['principal_point']
         fl = cam['focal_length']
 
@@ -115,13 +123,17 @@ if __name__ == '__main__':
     times = np.asarray(times, dtype=np.float32) # [N]
     times = times / times.max() # normalize to [0, 1]
 
-    H = H // opt.downscale
+    N = len(images)
+
     W = W // opt.downscale
+    H = H // opt.downscale
     cx = cx / opt.downscale
     cy = cy / opt.downscale
     fl = fl / opt.downscale
 
     print(f'[INFO] H = {H}, W = {W}, fl = {fl} (downscale = {opt.downscale})')
+
+    visualize_poses(poses)
 
     # simple flip
     # poses[:, :, 1] *= -1
@@ -155,11 +167,8 @@ if __name__ == '__main__':
     # totp /= totw
     # print(f'[INFO] totp = {totp}')
     # poses[:, :3, 3] -= totp
-
     # avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean()
-
     # poses[:, :3, 3] *= 4.0 / avglen
-
     # print(f'[INFO] average radius = {avglen}')
 
     visualize_poses(poses)

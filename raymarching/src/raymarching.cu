@@ -546,20 +546,19 @@ __global__ void kernel_composite_rays_train_forward(
         const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
         const scalar_t weight = alpha * T;
 
-        // minimal remained transmittence
-        // NOTE: uncomment it won't affect instant-ngp, but totally breaks TensoRF...
-        //if (weight < 1e-4f) break;
-
         r += weight * rgbs[0];
         g += weight * rgbs[1];
         b += weight * rgbs[2];
-
+        
         t += deltas[1]; // real delta
         d += weight * t;
-
+        
         ws += weight;
-
+        
         T *= 1.0f - alpha;
+
+        // minimal remained transmittence
+        if (T < 1e-4f) break;
 
         //printf("[n=%d] num_steps=%d, alpha=%f, w=%f, T=%f, sum_dt=%f, d=%f\n", n, step, alpha, weight, T, sum_delta, d);
 
@@ -650,8 +649,6 @@ __global__ void kernel_composite_rays_train_backward(
         const scalar_t alpha = 1.0f - __expf(- sigmas[0] * deltas[0]);
         const scalar_t weight = alpha * T;
 
-        //if (weight < 1e-4f) break;
-
         r += weight * rgbs[0];
         g += weight * rgbs[1];
         b += weight * rgbs[2];
@@ -659,6 +656,10 @@ __global__ void kernel_composite_rays_train_backward(
 
         T *= 1.0f - alpha;
 
+        // minimal remained transmittence
+        if (T < 1e-4f) break;
+
+        // check https://note.kiui.moe/others/nerf_gradient/ for the gradient calculation.
         // write grad_rgbs
         grad_rgbs[0] = grad_image[0] * weight;
         grad_rgbs[1] = grad_image[1] * weight;
@@ -669,7 +670,7 @@ __global__ void kernel_composite_rays_train_backward(
             grad_image[0] * (T * rgbs[0] - (r_final - r)) + 
             grad_image[1] * (T * rgbs[1] - (g_final - g)) + 
             grad_image[2] * (T * rgbs[2] - (b_final - b)) +
-            grad_weights_sum[0] * (T - (ws_final - ws))
+            grad_weights_sum[0] * (1 - ws_final)
         );
 
         //printf("[n=%d] num_steps=%d, T=%f, grad_sigmas=%f, r_final=%f, r=%f\n", n, step, T, grad_sigmas[0], r_final, r);
