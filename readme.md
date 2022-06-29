@@ -99,12 +99,12 @@ python main_nerf.py data/fox --workspace trial_nerf -O --gui
 # test mode for GUI
 python main_nerf.py data/fox --workspace trial_nerf -O --gui --test
 
-# for the blender dataset, you should add `--bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear`
+# for the blender dataset, you should add `--bound 1.0 --scale 0.8 --dt_gamma 0`
 # --bound means the scene is assumed to be inside box[-bound, bound]
 # --scale adjusts the camera locaction to make sure it falls inside the above bounding box. 
 # --dt_gamma controls the adaptive ray marching speed, set to 0 turns it off.
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear
-python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --bound 1.0 --scale 0.8 --dt_gamma 0 --color_space linear --gui
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --bound 1.0 --scale 0.8 --dt_gamma 0
+python main_nerf.py data/nerf_synthetic/lego --workspace trial_nerf -O --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
 
 # for the LLFF dataset, you should first convert it to nerf-compatible format:
 python scripts/llff2nerf.py data/nerf_llff_data/fern # by default it use full-resolution images, and write `transforms.json` to the folder
