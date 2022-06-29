@@ -258,13 +258,11 @@ If you find this work useful, a citation will be appreciated via:
 
 * The official TensoRF [implementation](https://github.com/apchenstu/TensoRF):
     ```
-    @misc{TensoRF,
-        title={TensoRF: Tensorial Radiance Fields},
-        author={Anpei Chen and Zexiang Xu and Andreas Geiger and and Jingyi Yu and Hao Su},
-        year={2022},
-        eprint={2203.09517},
-        archivePrefix={arXiv},
-        primaryClass={cs.CV}
+    @article{TensoRF,
+      title={TensoRF: Tensorial Radiance Fields},
+      author={Chen, Anpei and Xu, Zexiang and Geiger, Andreas and Yu, Jingyi and Su, Hao},
+      journal={arXiv preprint arXiv:2203.09517},
+      year={2022}
     }
     ```
 
