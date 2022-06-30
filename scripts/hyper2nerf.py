@@ -217,6 +217,15 @@ if __name__ == '__main__':
         'fl_y': fl,
         'cx': cx,
         'cy': cy,
+        'frames': val_frames[::10], # only use 1/10 frames for val
+    }
+    transforms_test = {
+        'w': W,
+        'h': H,
+        'fl_x': fl,
+        'fl_y': fl,
+        'cx': cx,
+        'cy': cy,
         'frames': val_frames,
     }
 
@@ -235,5 +244,5 @@ if __name__ == '__main__':
     output_path = os.path.join(opt.path, 'transforms_test.json')
     print(f'[INFO] write to {output_path}')
     with open(output_path, 'w') as f:
-        json.dump(transforms_val, f, indent=2)
+        json.dump(transforms_test, f, indent=2)
 

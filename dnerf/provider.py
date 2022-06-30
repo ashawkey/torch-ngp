@@ -206,9 +206,9 @@ class NeRFDataset:
             self.times = []
 
             # assume frames are already sorted by time!
-            for f in tqdm.tqdm(frames, desc=f'Loading {type} data:'):
+            for f in tqdm.tqdm(frames, desc=f'Loading {type} data'):
                 f_path = os.path.join(self.root_path, f['file_path'])
-                if self.mode == 'blender' and f_path[-4:] != '.png':
+                if self.mode == 'blender' and '.' not in f_path:
                     f_path += '.png' # so silly...
 
                 # there are non-exist paths in fox...

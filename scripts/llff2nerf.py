@@ -65,6 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('path', type=str, help="root directory to the LLFF dataset (contains images/ and pose_bounds.npy)")
     parser.add_argument('--images', type=str, default='images', help="images folder (do not include full path, e.g., just use `images_4`)")
     parser.add_argument('--downscale', type=float, default=1, help="image size down scale, e.g., 4")
+    parser.add_argument('--hold', type=int, default=8, help="hold out for validation every $ images")
 
     opt = parser.parse_args()
     print(f'[INFO] process {opt.path}')
@@ -99,7 +100,7 @@ if __name__ == '__main__':
 
     # visualize_poses(poses)
 
-    # the following stuff are from colmap2nerf... [flower fails, the camera must be in-ward focusing...]
+    # the following stuff are from colmap2nerf... [flower fails, the camera must be in-ward...]
     poses[:, 0:3, 1] *= -1
     poses[:, 0:3, 2] *= -1
     poses = poses[:, [1, 0, 2, 3], :] # swap y and z
@@ -134,15 +135,27 @@ if __name__ == '__main__':
     # visualize_poses(poses)
 
     # construct frames
-    frames = []
-    for i in range(N):
-        frames.append({
+
+    all_ids = np.arange(N)
+    test_ids = all_ids[::opt.hold]
+    train_ids = np.array([i for i in all_ids if i not in test_ids])
+
+    frames_train = []
+    frames_test = []
+    for i in train_ids:
+        frames_train.append({
+            'file_path': images[i],
+            'transform_matrix': poses[i].tolist(),
+        })
+    for i in test_ids:
+        frames_test.append({
             'file_path': images[i],
             'transform_matrix': poses[i].tolist(),
         })
 
+
     # construct a transforms.json
-    transforms = {
+    transforms_train = {
         'w': W,
         'h': H,
         'fl_x': fl,
@@ -150,12 +163,44 @@ if __name__ == '__main__':
         'cx': W // 2,
         'cy': H // 2,
         'aabb_scale': 2,
-        'frames': frames,
+        'frames': frames_train,
+    }
+
+    transforms_val = {
+        'w': W,
+        'h': H,
+        'fl_x': fl,
+        'fl_y': fl,
+        'cx': W // 2,
+        'cy': H // 2,
+        'aabb_scale': 2,
+        'frames': frames_test[::10],
+    }
+
+    transforms_test = {
+        'w': W,
+        'h': H,
+        'fl_x': fl,
+        'fl_y': fl,
+        'cx': W // 2,
+        'cy': H // 2,
+        'aabb_scale': 2,
+        'frames': frames_test,
     }
 
     # write
-    output_path = os.path.join(opt.path, 'transforms.json')
+    output_path = os.path.join(opt.path, 'transforms_train.json')
     print(f'[INFO] write to {output_path}')
     with open(output_path, 'w') as f:
-        json.dump(transforms, f, indent=2)
+        json.dump(transforms_train, f, indent=2)
+
+    output_path = os.path.join(opt.path, 'transforms_test.json')
+    print(f'[INFO] write to {output_path}')
+    with open(output_path, 'w') as f:
+        json.dump(transforms_test, f, indent=2)
+
+    output_path = os.path.join(opt.path, 'transforms_val.json')
+    print(f'[INFO] write to {output_path}')
+    with open(output_path, 'w') as f:
+        json.dump(transforms_val, f, indent=2)
 

@@ -6,4 +6,4 @@
 #OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=1 python main_dnerf.py data/split-cookie/ --workspace trial_dnerf_cookies -O --bound 1 --scale 0.3 --dt_gamma 0
 #OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=1 python main_dnerf.py data/split-cookie/ --workspace trial_dnerf_cookies_ncr --preload --fp16 --bound 1 --scale 0.3 --dt_gamma 0
 
-OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=4 python main_dnerf.py data/vrig-3dprinter/ --workspace trial_dnerf_printer -O --bound 1 --scale 0.3 --dt_gamma 0
+OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=4 python main_dnerf.py data/vrig-3dprinter/ --workspace trial_dnerf_printer -O --bound 2 --scale 0.33 --dt_gamma 0
