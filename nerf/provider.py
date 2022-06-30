@@ -194,7 +194,7 @@ class NeRFDataset:
             self.images = []
             for f in tqdm.tqdm(frames, desc=f'Loading {type} data'):
                 f_path = os.path.join(self.root_path, f['file_path'])
-                if self.mode == 'blender' and '.' not in f_path:
+                if self.mode == 'blender' and '.' not in os.path.basename(f_path):
                     f_path += '.png' # so silly...
 
                 # there are non-exist paths in fox...
