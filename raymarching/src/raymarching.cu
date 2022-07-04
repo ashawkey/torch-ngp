@@ -725,21 +725,21 @@ __global__ void kernel_march_rays(
     if (n >= n_alive) return;
 
     const int index = rays_alive[n]; // ray id
-    float t = rays_t[n]; // current ray's t
-
+    
     // locate
     rays_o += index * 3;
     rays_d += index * 3;
     xyzs += n * n_step * 3;
     dirs += n * n_step * 3;
     deltas += n * n_step * 2;
-
+    
     const float ox = rays_o[0], oy = rays_o[1], oz = rays_o[2];
     const float dx = rays_d[0], dy = rays_d[1], dz = rays_d[2];
     const float rdx = 1 / dx, rdy = 1 / dy, rdz = 1 / dz;
     const float rH = 1 / (float)H;
     const float H3 = H * H * H;
-
+    
+    float t = rays_t[index]; // current ray's t
     const float near = nears[index], far = fars[index];
 
     const float dt_min = 2 * SQRT3() / max_steps;
@@ -829,7 +829,7 @@ template <typename scalar_t>
 __global__ void kernel_composite_rays(
     const uint32_t n_alive, 
     const uint32_t n_step, 
-    const int* __restrict__ rays_alive, 
+    int* rays_alive, 
     scalar_t* rays_t, 
     const scalar_t* __restrict__ sigmas, 
     const scalar_t* __restrict__ rgbs, 
@@ -840,16 +840,18 @@ __global__ void kernel_composite_rays(
     if (n >= n_alive) return;
 
     const int index = rays_alive[n]; // ray id
-    scalar_t t = rays_t[n]; // current ray's t
-
+    
     // locate 
     sigmas += n * n_step;
     rgbs += n * n_step * 3;
     deltas += n * n_step * 2;
-
+    
+    rays_t += index;
     weights_sum += index;
     depth += index;
     image += index * 3;
+
+    scalar_t t = rays_t[0]; // current ray's t
     
     scalar_t weight_sum = weights_sum[0];
     scalar_t d = depth[0];
@@ -896,11 +898,11 @@ __global__ void kernel_composite_rays(
 
     //printf("[n=%d] rgb=(%f, %f, %f), d=%f\n", n, r, g, b, d);
 
-    // rays_t = -1 means ray is terminated early.
+    // rays_alive = -1 means ray is terminated early.
     if (step < n_step) {
-        rays_t[n] = -1;
+        rays_alive[n] = -1;
     } else {
-        rays_t[n] = t;
+        rays_t[0] = t;
     }
 
     weights_sum[0] = weight_sum; // this is the thing I needed!
@@ -911,40 +913,10 @@ __global__ void kernel_composite_rays(
 }
 
 
-void composite_rays(const uint32_t n_alive, const uint32_t n_step, const at::Tensor rays_alive, at::Tensor rays_t, const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, at::Tensor weights, at::Tensor depth, at::Tensor image) {
+void composite_rays(const uint32_t n_alive, const uint32_t n_step, at::Tensor rays_alive, at::Tensor rays_t, const at::Tensor sigmas, const at::Tensor rgbs, const at::Tensor deltas, at::Tensor weights, at::Tensor depth, at::Tensor image) {
     static constexpr uint32_t N_THREAD = 128;
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     image.scalar_type(), "composite_rays", ([&] {
         kernel_composite_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, n_step, rays_alive.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), sigmas.data_ptr<scalar_t>(), rgbs.data_ptr<scalar_t>(), deltas.data_ptr<scalar_t>(), weights.data_ptr<scalar_t>(), depth.data_ptr<scalar_t>(), image.data_ptr<scalar_t>());
-    }));
-}
-
-
-template <typename scalar_t>
-__global__ void kernel_compact_rays(
-    const uint32_t n_alive, 
-    int* rays_alive, 
-    const int* __restrict__ rays_alive_old, 
-    scalar_t* rays_t, 
-    const scalar_t* __restrict__ rays_t_old, 
-    int* alive_counter
-) {
-    const uint32_t n = threadIdx.x + blockIdx.x * blockDim.x;
-    if (n >= n_alive) return;
-
-    // rays_t_old[n] < 0 means ray died in last composite kernel.
-    if (rays_t_old[n] >= 0) {
-        const int index = atomicAdd(alive_counter, 1);
-        rays_alive[index] = rays_alive_old[n];
-        rays_t[index] = rays_t_old[n];
-    }
-}
-
-
-void compact_rays(const uint32_t n_alive, at::Tensor rays_alive, const at::Tensor rays_alive_old, at::Tensor rays_t, const at::Tensor rays_t_old, at::Tensor alive_counter) {
-    static constexpr uint32_t N_THREAD = 128;
-    AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    rays_t.scalar_type(), "compact_rays", ([&] {
-        kernel_compact_rays<<<div_round_up(n_alive, N_THREAD), N_THREAD>>>(n_alive, rays_alive.data_ptr<int>(), rays_alive_old.data_ptr<int>(), rays_t.data_ptr<scalar_t>(), rays_t_old.data_ptr<scalar_t>(), alive_counter.data_ptr<int>());
     }));
 }

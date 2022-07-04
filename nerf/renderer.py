@@ -328,24 +328,15 @@ class NeRFRenderer(nn.Module):
             image = torch.zeros(N, 3, dtype=dtype, device=device)
             
             n_alive = N
-            alive_counter = torch.zeros([1], dtype=torch.int32, device=device)
-
-            rays_alive = torch.zeros(2, n_alive, dtype=torch.int32, device=device) # 2 is used to loop old/new
-            rays_t = torch.zeros(2, n_alive, dtype=dtype, device=device)
+            rays_alive = torch.arange(n_alive, dtype=torch.int32, device=device) # [N]
+            rays_t = nears.clone() # [N]
 
             step = 0
-            i = 0
+            
             while step < max_steps:
 
                 # count alive rays 
-                if step == 0:
-                    # init rays at first step.
-                    torch.arange(n_alive, out=rays_alive[0])
-                    rays_t[0] = nears
-                else:
-                    alive_counter.zero_()
-                    raymarching.compact_rays(n_alive, rays_alive[i % 2], rays_alive[(i + 1) % 2], rays_t[i % 2], rays_t[(i + 1) % 2], alive_counter)
-                    n_alive = alive_counter.item() # must invoke D2H copy here
+                n_alive = rays_alive.shape[0]
                 
                 # exit loop
                 if n_alive <= 0:
@@ -354,7 +345,7 @@ class NeRFRenderer(nn.Module):
                 # decide compact_steps
                 n_step = max(min(N // n_alive, 8), 1)
 
-                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], rays_o, rays_d, self.bound, self.density_bitfield, self.cascade, self.grid_size, nears, fars, 128, perturb, dt_gamma, max_steps)
+                xyzs, dirs, deltas = raymarching.march_rays(n_alive, n_step, rays_alive, rays_t, rays_o, rays_d, self.bound, self.density_bitfield, self.cascade, self.grid_size, nears, fars, 128, perturb, dt_gamma, max_steps)
 
                 sigmas, rgbs = self(xyzs, dirs)
                 # density_outputs = self.density(xyzs) # [M,], use a dict since it may include extra things, like geo_feat for rgb.
@@ -362,12 +353,13 @@ class NeRFRenderer(nn.Module):
                 # rgbs = self.color(xyzs, dirs, **density_outputs)
                 sigmas = self.density_scale * sigmas
 
-                raymarching.composite_rays(n_alive, n_step, rays_alive[i % 2], rays_t[i % 2], sigmas, rgbs, deltas, weights_sum, depth, image)
+                raymarching.composite_rays(n_alive, n_step, rays_alive, rays_t, sigmas, rgbs, deltas, weights_sum, depth, image)
+
+                rays_alive = rays_alive[rays_alive >= 0]
 
                 #print(f'step = {step}, n_step = {n_step}, n_alive = {n_alive}, xyzs: {xyzs.shape}')
 
                 step += n_step
-                i += 1
 
             image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
             depth = torch.clamp(depth - nears, min=0) / (fars - nears)

@@ -345,8 +345,8 @@ class _composite_rays(Function):
         Args:
             n_alive: int, number of alive rays
             n_step: int, how many steps we march
-            rays_alive: int, [N], the alive rays' IDs in N (N >= n_alive, but we only use first n_alive)
-            rays_t: float, [N], the alive rays' time, we only use the first n_alive.
+            rays_alive: int, [n_alive], the alive rays' IDs in N (N >= n_alive)
+            rays_t: float, [N], the alive rays' time
             sigmas: float, [n_alive * n_step,]
             rgbs: float, [n_alive * n_step, 3]
             deltas: float, [n_alive * n_step, 2], all generated points' deltas (here we record two deltas, the first is for RGB, the second for depth).
@@ -360,23 +360,3 @@ class _composite_rays(Function):
 
 
 composite_rays = _composite_rays.apply
-
-
-class _compact_rays(Function):
-    @staticmethod
-    @custom_fwd(cast_inputs=torch.float32)
-    def forward(ctx, n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter):
-        ''' compact rays, remove dead rays and reallocate alive rays, to accelerate next ray marching.
-        Args:
-            n_alive: int, number of alive rays
-            rays_alive_old: int, [N]
-            rays_t_old: float, [N], dead rays are marked by rays_t < 0
-            alive_counter: int, [1], used to count remained alive rays.
-        In-place Outputs:
-            rays_alive: int, [N]
-            rays_t: float, [N]
-        '''    
-        _backend.compact_rays(n_alive, rays_alive, rays_alive_old, rays_t, rays_t_old, alive_counter)
-        return tuple()
-
-compact_rays = _compact_rays.apply
