@@ -4,16 +4,30 @@ This repository contains:
 * A pytorch implementation of the SDF and NeRF part (grid encoder, density grid ray sampler) in [instant-ngp](https://github.com/NVlabs/instant-ngp), as described in [_Instant Neural Graphics Primitives with a Multiresolution Hash Encoding_](https://nvlabs.github.io/instant-ngp/assets/mueller2022instant.pdf).
 * A pytorch implementation of [TensoRF](https://github.com/apchenstu/TensoRF), as described in [_TensoRF: Tensorial Radiance Fields_](https://arxiv.org/abs/2203.09517), adapted to instant-ngp's NeRF framework.
 * A pytorch implementation of [CCNeRF](https://github.com/ashawkey/CCNeRF), as described in [_Compressible-composable NeRF via Rank-residual Decomposition_](https://arxiv.org/abs/2205.14870).
-* [New!] An implementation of [D-NeRF](https://github.com/albertpumarola/D-NeRF) adapted to instant-ngp's framework, as described in [D-NeRF: Neural Radiance Fields for Dynamic Scenes](https://openaccess.thecvf.com/content/CVPR2021/papers/Pumarola_D-NeRF_Neural_Radiance_Fields_for_Dynamic_Scenes_CVPR_2021_paper.pdf).
+* [New!] An implementation of [D-NeRF](https://github.com/albertpumarola/D-NeRF) adapted to instant-ngp's framework, as described in [_D-NeRF: Neural Radiance Fields for Dynamic Scenes_](https://openaccess.thecvf.com/content/CVPR2021/papers/Pumarola_D-NeRF_Neural_Radiance_Fields_for_Dynamic_Scenes_CVPR_2021_paper.pdf).
 * Some experimental features in the NeRF framework (e.g., text-guided NeRF editig similar to [CLIP-NeRF](https://arxiv.org/abs/2112.05139)).
 * A GUI for training/visualizing NeRF!
 
 ### [Gallery](assets/gallery.md) | [Update Logs](assets/update_logs.md)
 
+Instant-ngp interactive training/rendering on lego:
+
 https://user-images.githubusercontent.com/25863658/176174011-e7b7c4ab-9b6f-4f65-9952-7eceafe609b7.mp4
+
+Also the first interactive deformable-nerf implementation:
 
 https://user-images.githubusercontent.com/25863658/175821784-63ba79f6-29be-47b5-b3fc-dab5282fce7a.mp4
 
+
+### Other related projects
+
+* [ngp_pl](https://github.com/kwea123/ngp_pl): PyTorch+CUDA trained with pytorch-lightning.
+
+* [JNeRF](https://github.com/Jittor/JNeRF): An NeRF benchmark based on Jittor.
+
+* [HashNeRF-pytorch](https://github.com/yashbhalgat/HashNeRF-pytorch): A pure PyTorch implementation.
+
+* [dreamfields-torch](https://github.com/ashawkey/dreamfields-torch): PyTorch+CUDA implementation of [_Zero-Shot Text-Guided Object Generation with Dream Fields_](https://arxiv.org/abs/2112.01455) based on this repository.
 
 # Install
 ```bash
