@@ -26,19 +26,19 @@ def parse_args():
     parser.add_argument("--video", default="", help="input path to the video")
     parser.add_argument("--images", default="", help="input path to the images folder, ignored if --video is provided")
     parser.add_argument("--run_colmap", action="store_true", help="run colmap first on the image folder")
+
     parser.add_argument("--dynamic", action="store_true", help="for dynamic scene, extraly save time calculated from frame index.")
     parser.add_argument("--estimate_affine_shape", action="store_true", help="colmap SiftExtraction option, may yield better results, yet can only be run on CPU.")
+    parser.add_argument('--hold', type=int, default=8, help="hold out for validation every $ images")
 
     parser.add_argument("--video_fps", default=3)
     parser.add_argument("--time_slice", default="", help="time (in seconds) in the format t1,t2 within which the images should be generated from the video. eg: \"--time_slice '10,300'\" will generate images only from 10th second to 300th second of the video")
 
     parser.add_argument("--colmap_matcher", default="exhaustive", choices=["exhaustive","sequential","spatial","transitive","vocab_tree"], help="select which matcher colmap should use. sequential for videos, exhaustive for adhoc images")
-    parser.add_argument("--aabb_scale", default=2, choices=["1","2","4","8","16"], help="large scene scale factor. 1=scene fits in unit cube; power of 2 up to 16")
     parser.add_argument("--skip_early", default=0, help="skip this many images from the start")
 
     parser.add_argument("--colmap_text", default="colmap_text", help="input path to the colmap text files (set automatically if run_colmap is used)")
     parser.add_argument("--colmap_db", default="colmap.db", help="colmap database filename")
-    parser.add_argument("--out", default="transforms.json", help="output path")
 
     args = parser.parse_args()
     return args
@@ -168,17 +168,13 @@ if __name__ == "__main__":
     
     args.colmap_db = os.path.join(root_dir, args.colmap_db)
     args.colmap_text = os.path.join(root_dir, args.colmap_text)
-    args.out = os.path.join(root_dir, args.out)
 
     if args.run_colmap:
         run_colmap(args)
 
-    AABB_SCALE = int(args.aabb_scale)
     SKIP_EARLY = int(args.skip_early)
     TEXT_FOLDER = args.colmap_text
-    OUT_PATH = args.out
 
-    print(f"outputting to {OUT_PATH}...")
     with open(os.path.join(TEXT_FOLDER, "cameras.txt"), "r") as f:
         angle_x = math.pi / 2
         for line in f:
@@ -237,22 +233,7 @@ if __name__ == "__main__":
 
         bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
 
-        out = {
-            "camera_angle_x": angle_x,
-            "camera_angle_y": angle_y,
-            "fl_x": fl_x,
-            "fl_y": fl_y,
-            "k1": k1,
-            "k2": k2,
-            "p1": p1,
-            "p2": p2,
-            "cx": cx,
-            "cy": cy,
-            "w": w,
-            "h": h,
-            "aabb_scale": AABB_SCALE,
-            "frames": [],
-        }
+        frames = []
 
         up = np.zeros(3)
         for line in f:
@@ -296,9 +277,9 @@ if __name__ == "__main__":
                     "transform_matrix": c2w
                 }
 
-                out["frames"].append(frame)
+                frames.append(frame)
 
-    N = len(out["frames"])
+    N = len(frames)
     up = up / np.linalg.norm(up)
 
     print("[INFO] up vector was", up)
@@ -307,43 +288,136 @@ if __name__ == "__main__":
     R = np.pad(R, [0, 1])
     R[-1, -1] = 1
 
-    for f in out["frames"]:
+    for f in frames:
         f["transform_matrix"] = np.matmul(R, f["transform_matrix"]) # rotate up to be the z axis
 
     # find a central point they are all looking at
     print("[INFO] computing center of attention...")
     totw = 0.0
     totp = np.array([0.0, 0.0, 0.0])
-    for f in out["frames"]:
+    for f in frames:
         mf = f["transform_matrix"][0:3,:]
-        for g in out["frames"]:
+        for g in frames:
             mg = g["transform_matrix"][0:3,:]
-            p, w = closest_point_2_lines(mf[:,3], mf[:,2], mg[:,3], mg[:,2])
-            if w > 0.01:
-                totp += p * w
-                totw += w
+            p, weight = closest_point_2_lines(mf[:,3], mf[:,2], mg[:,3], mg[:,2])
+            if weight > 0.01:
+                totp += p * weight
+                totw += weight
     totp /= totw
-    for f in out["frames"]:
+    for f in frames:
         f["transform_matrix"][0:3,3] -= totp
     avglen = 0.
-    for f in out["frames"]:
+    for f in frames:
         avglen += np.linalg.norm(f["transform_matrix"][0:3,3])
     avglen /= N
     print("[INFO] avg camera distance from origin", avglen)
-    for f in out["frames"]:
+    for f in frames:
         f["transform_matrix"][0:3,3] *= 4.0 / avglen # scale to "nerf sized"
 
     # sort frames by id
-    out["frames"].sort(key=lambda d: d['file_path'])
+    frames.sort(key=lambda d: d['file_path'])
 
     # add time if scene is dynamic
     if args.dynamic:
-        for i, f in enumerate(out["frames"]):
+        for i, f in enumerate(frames):
             f['time'] = i / N
 
-    for f in out["frames"]:
+    for f in frames:
         f["transform_matrix"] = f["transform_matrix"].tolist()
 
-    print(f"[INFO] writing {N} frames to {OUT_PATH}")
-    with open(OUT_PATH, "w") as outfile:
-        json.dump(out, outfile, indent=2)
+    # construct frames
+
+    # just one transforms.json, don't do data split
+    if args.hold <= 0:
+
+        out = {
+            "camera_angle_x": angle_x,
+            "camera_angle_y": angle_y,
+            "fl_x": fl_x,
+            "fl_y": fl_y,
+            "k1": k1,
+            "k2": k2,
+            "p1": p1,
+            "p2": p2,
+            "cx": cx,
+            "cy": cy,
+            "w": w,
+            "h": h,
+            "frames": frames,
+        }
+
+        output_path = os.path.join(root_dir, 'transforms.json')
+        print(f"[INFO] writing {N} frames to {output_path}")
+        with open(output_path, "w") as outfile:
+            json.dump(out, outfile, indent=2)
+        
+    else:
+        all_ids = np.arange(N)
+        test_ids = all_ids[::args.hold]
+        train_ids = np.array([i for i in all_ids if i not in test_ids])
+
+        frames_train = [f for i, f in enumerate(frames) if i in train_ids]
+        frames_test = [f for i, f in enumerate(frames) if i in test_ids]
+
+        out = {
+            "camera_angle_x": angle_x,
+            "camera_angle_y": angle_y,
+            "fl_x": fl_x,
+            "fl_y": fl_y,
+            "k1": k1,
+            "k2": k2,
+            "p1": p1,
+            "p2": p2,
+            "cx": cx,
+            "cy": cy,
+            "w": w,
+            "h": h,
+            "frames": frames_train,
+        }
+
+        output_path = os.path.join(root_dir, 'transforms_train.json')
+        print(f"[INFO] writing {len(out['frames'])} frames to {output_path}")
+        with open(output_path, "w") as outfile:
+            json.dump(out, outfile, indent=2)
+
+        out = {
+            "camera_angle_x": angle_x,
+            "camera_angle_y": angle_y,
+            "fl_x": fl_x,
+            "fl_y": fl_y,
+            "k1": k1,
+            "k2": k2,
+            "p1": p1,
+            "p2": p2,
+            "cx": cx,
+            "cy": cy,
+            "w": w,
+            "h": h,
+            "frames": frames_test,
+        }
+
+        output_path = os.path.join(root_dir, 'transforms_test.json')
+        print(f"[INFO] writing {len(out['frames'])} frames to {output_path}")
+        with open(output_path, "w") as outfile:
+            json.dump(out, outfile, indent=2)
+
+        out = {
+            "camera_angle_x": angle_x,
+            "camera_angle_y": angle_y,
+            "fl_x": fl_x,
+            "fl_y": fl_y,
+            "k1": k1,
+            "k2": k2,
+            "p1": p1,
+            "p2": p2,
+            "cx": cx,
+            "cy": cy,
+            "w": w,
+            "h": h,
+            "frames": frames_test[::10],
+        }
+
+        output_path = os.path.join(root_dir, 'transforms_val.json')
+        print(f"[INFO] writing {len(out['frames'])} frames to {output_path}")
+        with open(output_path, "w") as outfile:
+            json.dump(out, outfile, indent=2)
