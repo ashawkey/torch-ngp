@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument("--images", default="", help="input path to the images folder, ignored if --video is provided")
     parser.add_argument("--run_colmap", action="store_true", help="run colmap first on the image folder")
     parser.add_argument("--dynamic", action="store_true", help="for dynamic scene, extraly save time calculated from frame index.")
+    parser.add_argument("--estimate_affine_shape", action="store_true", help="colmap SiftExtraction option, may yield better results, yet can only be run on CPU.")
 
     parser.add_argument("--video_fps", default=3)
     parser.add_argument("--time_slice", default="", help="time (in seconds) in the format t1,t2 within which the images should be generated from the video. eg: \"--time_slice '10,300'\" will generate images only from 10th second to 300th second of the video")
@@ -77,6 +78,7 @@ def run_colmap(args):
     db = args.colmap_db
     images = args.images
     text = args.colmap_text
+    flag_EAS = int(args.estimate_affine_shape) # 0 / 1
 
     db_noext = str(Path(db).with_suffix(""))
     sparse = db_noext + "_sparse"
@@ -86,8 +88,8 @@ def run_colmap(args):
         sys.exit(1)
     if os.path.exists(db):
         os.remove(db)
-    do_system(f"colmap feature_extractor --ImageReader.camera_model OPENCV --SiftExtraction.estimate_affine_shape=true --SiftExtraction.domain_size_pooling=true --ImageReader.single_camera 1 --database_path {db} --image_path {images}")
-    do_system(f"colmap {args.colmap_matcher}_matcher --SiftMatching.guided_matching=true --database_path {db}")
+    do_system(f"colmap feature_extractor --ImageReader.camera_model OPENCV --SiftExtraction.estimate_affine_shape {flag_EAS} --SiftExtraction.domain_size_pooling {flag_EAS} --ImageReader.single_camera 1 --database_path {db} --image_path {images}")
+    do_system(f"colmap {args.colmap_matcher}_matcher --SiftMatching.guided_matching {flag_EAS} --database_path {db}")
     try:
         shutil.rmtree(sparse)
     except:

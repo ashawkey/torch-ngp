@@ -559,11 +559,6 @@ class Trainer(object):
         self.model.eval()
         with torch.no_grad():
 
-            # update grid
-            if self.model.cuda_ray:
-                with torch.cuda.amp.autocast(enabled=self.fp16):
-                    self.model.update_extra_state()
-
             for i, data in enumerate(loader):
                 
                 with torch.cuda.amp.autocast(enabled=self.fp16):
@@ -807,11 +802,6 @@ class Trainer(object):
 
         with torch.no_grad():
             self.local_step = 0
-
-            # update grid
-            if self.model.cuda_ray:
-                with torch.cuda.amp.autocast(enabled=self.fp16):
-                    self.model.update_extra_state()
 
             for data in loader:    
                 self.local_step += 1
