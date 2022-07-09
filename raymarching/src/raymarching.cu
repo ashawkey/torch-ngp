@@ -162,7 +162,7 @@ void near_far_from_aabb(const at::Tensor rays_o, const at::Tensor rays_d, const 
 // radius: float
 // coords: [N, 2]
 template <typename scalar_t>
-__global__ void kernel_polar_from_ray(
+__global__ void kernel_sph_from_ray(
     const scalar_t * __restrict__ rays_o,
     const scalar_t * __restrict__ rays_d,
     const float radius,
@@ -200,13 +200,13 @@ __global__ void kernel_polar_from_ray(
 }
 
 
-void polar_from_ray(const at::Tensor rays_o, const at::Tensor rays_d, const float radius, const uint32_t N, at::Tensor coords) {
+void sph_from_ray(const at::Tensor rays_o, const at::Tensor rays_d, const float radius, const uint32_t N, at::Tensor coords) {
 
     static constexpr uint32_t N_THREAD = 128;
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-    rays_o.scalar_type(), "polar_from_ray", ([&] {
-        kernel_polar_from_ray<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), radius, N, coords.data_ptr<scalar_t>());
+    rays_o.scalar_type(), "sph_from_ray", ([&] {
+        kernel_sph_from_ray<<<div_round_up(N, N_THREAD), N_THREAD>>>(rays_o.data_ptr<scalar_t>(), rays_d.data_ptr<scalar_t>(), radius, N, coords.data_ptr<scalar_t>());
     }));
 }
 

@@ -5,7 +5,7 @@
 
 
 void near_far_from_aabb(const at::Tensor rays_o, const at::Tensor rays_d, const at::Tensor aabb, const uint32_t N, const float min_near, at::Tensor nears, at::Tensor fars);
-void polar_from_ray(const at::Tensor rays_o, const at::Tensor rays_d, const float radius, const uint32_t N, at::Tensor coords);
+void sph_from_ray(const at::Tensor rays_o, const at::Tensor rays_d, const float radius, const uint32_t N, at::Tensor coords);
 void morton3D(const at::Tensor coords, const uint32_t N, at::Tensor indices);
 void morton3D_invert(const at::Tensor indices, const uint32_t N, at::Tensor coords);
 void packbits(const at::Tensor grid, const uint32_t N, const float density_thresh, at::Tensor bitfield);

@@ -184,65 +184,41 @@ if __name__ == '__main__':
     # visualize_poses(poses)
 
     # construct frames
-    train_frames = []
+    frames_train = []
     for i in train_ids:
-        train_frames.append({
+        frames_train.append({
             'file_path': images[i],
             'time': float(times[i]),
             'transform_matrix': poses[i].tolist(),
         })
 
-    val_frames = []
+    frames_val = []
     for i in val_ids:
-        val_frames.append({
+        frames_val.append({
             'file_path': images[i],
             'time': float(times[i]),
             'transform_matrix': poses[i].tolist(),
         })
 
-    # construct transforms.json
-    transforms_train = {
-        'w': W,
-        'h': H,
-        'fl_x': fl,
-        'fl_y': fl,
-        'cx': cx,
-        'cy': cy,
-        'frames': train_frames,
-    }
-    transforms_val = {
-        'w': W,
-        'h': H,
-        'fl_x': fl,
-        'fl_y': fl,
-        'cx': cx,
-        'cy': cy,
-        'frames': val_frames[::10], # only use 1/10 frames for val
-    }
-    transforms_test = {
-        'w': W,
-        'h': H,
-        'fl_x': fl,
-        'fl_y': fl,
-        'cx': cx,
-        'cy': cy,
-        'frames': val_frames,
-    }
+    def write_json(filename, frames):
 
-    # write
-    output_path = os.path.join(opt.path, 'transforms_train.json')
-    print(f'[INFO] write to {output_path}')
-    with open(output_path, 'w') as f:
-        json.dump(transforms_train, f, indent=2)
-    
-    output_path = os.path.join(opt.path, 'transforms_val.json')
-    print(f'[INFO] write to {output_path}')
-    with open(output_path, 'w') as f:
-        json.dump(transforms_val, f, indent=2)
+        # construct a transforms.json
+        out = {
+            'w': W,
+            'h': H,
+            'fl_x': fl,
+            'fl_y': fl,
+            'cx': cx,
+            'cy': cy,
+            'frames': frames,
+        }
 
-    # test is the same as val
-    output_path = os.path.join(opt.path, 'transforms_test.json')
-    print(f'[INFO] write to {output_path}')
-    with open(output_path, 'w') as f:
-        json.dump(transforms_test, f, indent=2)
+        # write
+        output_path = os.path.join(opt.path, filename)
+        print(f'[INFO] write {len(frames)} images to {output_path}')
+        with open(output_path, 'w') as f:
+            json.dump(out, f, indent=2)
 
+    write_json('transforms_train.json', frames_train)
+    write_json('transforms_val.json', frames_val[::10])
+    write_json('transforms_test.json', frames_val)

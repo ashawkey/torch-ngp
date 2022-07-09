@@ -327,8 +327,7 @@ if __name__ == "__main__":
 
     # construct frames
 
-    # just one transforms.json, don't do data split
-    if args.hold <= 0:
+    def write_json(filename, frames):
 
         out = {
             "camera_angle_x": angle_x,
@@ -346,10 +345,15 @@ if __name__ == "__main__":
             "frames": frames,
         }
 
-        output_path = os.path.join(root_dir, 'transforms.json')
-        print(f"[INFO] writing {N} frames to {output_path}")
+        output_path = os.path.join(root_dir, filename)
+        print(f"[INFO] writing {len(frames)} frames to {output_path}")
         with open(output_path, "w") as outfile:
             json.dump(out, outfile, indent=2)
+
+    # just one transforms.json, don't do data split
+    if args.hold <= 0:
+
+        write_json('transforms.json', frames)
         
     else:
         all_ids = np.arange(N)
@@ -359,65 +363,6 @@ if __name__ == "__main__":
         frames_train = [f for i, f in enumerate(frames) if i in train_ids]
         frames_test = [f for i, f in enumerate(frames) if i in test_ids]
 
-        out = {
-            "camera_angle_x": angle_x,
-            "camera_angle_y": angle_y,
-            "fl_x": fl_x,
-            "fl_y": fl_y,
-            "k1": k1,
-            "k2": k2,
-            "p1": p1,
-            "p2": p2,
-            "cx": cx,
-            "cy": cy,
-            "w": w,
-            "h": h,
-            "frames": frames_train,
-        }
-
-        output_path = os.path.join(root_dir, 'transforms_train.json')
-        print(f"[INFO] writing {len(out['frames'])} frames to {output_path}")
-        with open(output_path, "w") as outfile:
-            json.dump(out, outfile, indent=2)
-
-        out = {
-            "camera_angle_x": angle_x,
-            "camera_angle_y": angle_y,
-            "fl_x": fl_x,
-            "fl_y": fl_y,
-            "k1": k1,
-            "k2": k2,
-            "p1": p1,
-            "p2": p2,
-            "cx": cx,
-            "cy": cy,
-            "w": w,
-            "h": h,
-            "frames": frames_test,
-        }
-
-        output_path = os.path.join(root_dir, 'transforms_test.json')
-        print(f"[INFO] writing {len(out['frames'])} frames to {output_path}")
-        with open(output_path, "w") as outfile:
-            json.dump(out, outfile, indent=2)
-
-        out = {
-            "camera_angle_x": angle_x,
-            "camera_angle_y": angle_y,
-            "fl_x": fl_x,
-            "fl_y": fl_y,
-            "k1": k1,
-            "k2": k2,
-            "p1": p1,
-            "p2": p2,
-            "cx": cx,
-            "cy": cy,
-            "w": w,
-            "h": h,
-            "frames": frames_test[::10],
-        }
-
-        output_path = os.path.join(root_dir, 'transforms_val.json')
-        print(f"[INFO] writing {len(out['frames'])} frames to {output_path}")
-        with open(output_path, "w") as outfile:
-            json.dump(out, outfile, indent=2)
+        write_json('transforms_train.json', frames_train)
+        write_json('transforms_val.json', frames_test[::10])
+        write_json('transforms_test.json', frames_test)

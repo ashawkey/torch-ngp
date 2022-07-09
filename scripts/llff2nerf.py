@@ -63,12 +63,16 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('path', type=str, help="root directory to the LLFF dataset (contains images/ and pose_bounds.npy)")
-    parser.add_argument('--images', type=str, default='images', help="images folder (do not include full path, e.g., just use `images_4`)")
-    parser.add_argument('--downscale', type=float, default=1, help="image size down scale, e.g., 4")
+    parser.add_argument('--images', type=str, default='images_8', help="images folder (do not include full path, e.g., just use `images_4`)")
+    parser.add_argument('--downscale', type=float, default=8, help="image size down scale, e.g., 4")
     parser.add_argument('--hold', type=int, default=8, help="hold out for validation every $ images")
 
     opt = parser.parse_args()
     print(f'[INFO] process {opt.path}')
+
+    # path must end with / to make sure image path is relative
+    if opt.path[-1] != '/':
+        opt.path += '/'
     
     # load data
     images = [f[len(opt.path):] for f in sorted(glob.glob(os.path.join(opt.path, opt.images, "*"))) if f.lower().endswith('png') or f.lower().endswith('jpg') or f.lower().endswith('jpeg')]
@@ -153,54 +157,27 @@ if __name__ == '__main__':
             'transform_matrix': poses[i].tolist(),
         })
 
+    def write_json(filename, frames):
 
-    # construct a transforms.json
-    transforms_train = {
-        'w': W,
-        'h': H,
-        'fl_x': fl,
-        'fl_y': fl,
-        'cx': W // 2,
-        'cy': H // 2,
-        'aabb_scale': 2,
-        'frames': frames_train,
-    }
+        # construct a transforms.json
+        out = {
+            'w': W,
+            'h': H,
+            'fl_x': fl,
+            'fl_y': fl,
+            'cx': W // 2,
+            'cy': H // 2,
+            'aabb_scale': 2,
+            'frames': frames,
+        }
 
-    transforms_val = {
-        'w': W,
-        'h': H,
-        'fl_x': fl,
-        'fl_y': fl,
-        'cx': W // 2,
-        'cy': H // 2,
-        'aabb_scale': 2,
-        'frames': frames_test[::10],
-    }
+        # write
+        output_path = os.path.join(opt.path, filename)
+        print(f'[INFO] write {len(frames)} images to {output_path}')
+        with open(output_path, 'w') as f:
+            json.dump(out, f, indent=2)
 
-    transforms_test = {
-        'w': W,
-        'h': H,
-        'fl_x': fl,
-        'fl_y': fl,
-        'cx': W // 2,
-        'cy': H // 2,
-        'aabb_scale': 2,
-        'frames': frames_test,
-    }
-
-    # write
-    output_path = os.path.join(opt.path, 'transforms_train.json')
-    print(f'[INFO] write to {output_path}')
-    with open(output_path, 'w') as f:
-        json.dump(transforms_train, f, indent=2)
-
-    output_path = os.path.join(opt.path, 'transforms_test.json')
-    print(f'[INFO] write to {output_path}')
-    with open(output_path, 'w') as f:
-        json.dump(transforms_test, f, indent=2)
-
-    output_path = os.path.join(opt.path, 'transforms_val.json')
-    print(f'[INFO] write to {output_path}')
-    with open(output_path, 'w') as f:
-        json.dump(transforms_val, f, indent=2)
+    write_json('transforms_train.json', frames_train)
+    write_json('transforms_val.json', frames_test[::10])
+    write_json('transforms_test.json', frames_test)
 
