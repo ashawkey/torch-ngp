@@ -292,7 +292,7 @@ class Trainer(object):
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
 
         # variable init
-        self.epoch = 1
+        self.epoch = 0
         self.global_step = 0
         self.local_step = 0
         self.stats = {
@@ -523,7 +523,7 @@ class Trainer(object):
         # get a ref to error_map
         self.error_map = train_loader._data.error_map
         
-        for epoch in range(self.epoch, max_epochs + 1):
+        for epoch in range(self.epoch+1, max_epochs + 1):
             self.epoch = epoch
 
             self.train_one_epoch(train_loader)
