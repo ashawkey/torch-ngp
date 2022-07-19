@@ -187,8 +187,12 @@ python main_CCNeRF.py data/nerf_synthetic/hotdog --workspace trial_cc_hotdog -O 
 
 ### D-NeRF
 # almost the same as Instant-ngp NeRF, just replace the main script.
+# use deformation to model dynamic scene
 python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0
 python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --gui
+# use temporal basis to model dynamic scene
+python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_basis_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --basis
+python main_dnerf.py data/dnerf/jumpingjacks --workspace trial_dnerf_basis_jumpingjacks -O --bound 1.0 --scale 0.8 --dt_gamma 0 --basis --gui
 # for the hypernerf dataset, first convert it into nerf-compatible format:
 python scripts/hyper2nerf.py data/split-cookie --downscale 2 # will generate transforms*.json
 python main_dnerf.py data/split-cookie/ --workspace trial_dnerf_cookies -O --bound 1 --scale 0.3 --dt_gamma 0

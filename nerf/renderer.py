@@ -249,6 +249,7 @@ class NeRFRenderer(nn.Module):
         return {
             'depth': depth,
             'image': image,
+            'weights_sum': weights_sum,
         }
 
 
@@ -273,6 +274,8 @@ class NeRFRenderer(nn.Module):
             bg_color = self.background(sph, rays_d) # [N, 3]
         elif bg_color is None:
             bg_color = 1
+
+        results = {}
 
         if self.training:
             # setup counter
@@ -314,6 +317,8 @@ class NeRFRenderer(nn.Module):
                 depth = torch.clamp(depth - nears, min=0) / (fars - nears)
                 image = image.view(*prefix, 3)
                 depth = depth.view(*prefix)
+            
+            results['weights_sum'] = weights_sum
 
         else:
            
@@ -365,11 +370,11 @@ class NeRFRenderer(nn.Module):
             depth = torch.clamp(depth - nears, min=0) / (fars - nears)
             image = image.view(*prefix, 3)
             depth = depth.view(*prefix)
+        
+        results['depth'] = depth
+        results['image'] = image
 
-        return {
-            'depth': depth,
-            'image': image,
-        }
+        return results
 
     @torch.no_grad()
     def mark_untrained_grid(self, poses, intrinsic, S=64):

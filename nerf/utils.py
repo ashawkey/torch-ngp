@@ -292,7 +292,7 @@ class Trainer(object):
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
 
         # variable init
-        self.epoch = 1
+        self.epoch = 0
         self.global_step = 0
         self.local_step = 0
         self.stats = {
@@ -442,6 +442,11 @@ class Trainer(object):
 
         loss = loss.mean()
 
+        # extra loss
+        # pred_weights_sum = outputs['weights_sum'] + 1e-8
+        # loss_ws = - 1e-1 * pred_weights_sum * torch.log(pred_weights_sum) # entropy to encourage weights_sum to be 0 or 1.
+        # loss = loss + loss_ws.mean()
+
         return pred_rgb, gt_rgb, loss
 
     def eval_step(self, data):
@@ -523,7 +528,7 @@ class Trainer(object):
         # get a ref to error_map
         self.error_map = train_loader._data.error_map
         
-        for epoch in range(self.epoch, max_epochs + 1):
+        for epoch in range(self.epoch + 1, max_epochs + 1):
             self.epoch = epoch
 
             self.train_one_epoch(train_loader)

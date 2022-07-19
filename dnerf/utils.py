@@ -115,8 +115,8 @@ class Trainer(_Trainer):
         loss = loss.mean()
 
         # deform regularization
-        deform = outputs['deform']
-        loss = loss + 1e-3 * deform.abs().mean()
+        if 'deform' in outputs and outputs['deform'] is not None:
+            loss = loss + 1e-3 * outputs['deform'].abs().mean()
         
         return pred_rgb, gt_rgb, loss
 

@@ -34,6 +34,7 @@ if __name__ == '__main__':
 
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
+    parser.add_argument('--basis', action='store_true', help="[experimental] use temporal basis instead of deformation to model dynamic scene (check Fourier PlenOctree and NeuVV)")
     # parser.add_argument('--ff', action='store_true', help="use fully-fused MLP")
     # parser.add_argument('--tcnn', action='store_true', help="use TCNN backend")
 
@@ -69,7 +70,11 @@ if __name__ == '__main__':
         opt.cuda_ray = True
         opt.preload = True
 
-    from dnerf.network import NeRFNetwork
+    if opt.basis:
+        assert opt.cuda_ray, "Non-cuda-ray mode is temporarily broken with temporal basis mode"
+        from dnerf.network_basis import NeRFNetwork
+    else:
+        from dnerf.network import NeRFNetwork
 
     print(opt)
     

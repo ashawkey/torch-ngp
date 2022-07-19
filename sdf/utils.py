@@ -153,7 +153,7 @@ class Trainer(object):
         self.scaler = torch.cuda.amp.GradScaler(enabled=self.fp16)
 
         # variable init
-        self.epoch = 1
+        self.epoch = 0
         self.global_step = 0
         self.local_step = 0
         self.stats = {
@@ -264,7 +264,7 @@ class Trainer(object):
         if self.use_tensorboardX and self.local_rank == 0:
             self.writer = tensorboardX.SummaryWriter(os.path.join(self.workspace, "run", self.name))
         
-        for epoch in range(self.epoch, max_epochs + 1):
+        for epoch in range(self.epoch + 1, max_epochs + 1):
             self.epoch = epoch
 
             self.train_one_epoch(train_loader)
