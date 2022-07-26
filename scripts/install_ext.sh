@@ -10,6 +10,11 @@ cd shencoder
 pip install .
 cd .. 
 
-cd ffmlp
+cd freqencoder
 pip install .
-cd ..
+cd .. 
+
+# turned off by default, very slow to compile.
+#cd ffmlp
+#pip install .
+#cd ..

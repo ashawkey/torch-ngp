@@ -1,5 +1,6 @@
 ## Update logs
 
+* 7.26: add a CUDA-based freqencoder (though not used by default), add LPIPS metric.
 * 7.16: add temporal basis based dynamic nerf (experimental). It trains much faster compared to the deformation based dynamic nerf, but performance is much worse for now...
 * 6.29: add support for HyperNeRF's dataset.
     * we use a simplified pinhole camera model, may introduce bias.

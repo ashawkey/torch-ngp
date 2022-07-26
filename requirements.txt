@@ -14,3 +14,4 @@ pysdf
 dearpygui
 packaging
 scipy
+lpips
