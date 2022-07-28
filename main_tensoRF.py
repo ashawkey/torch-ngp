@@ -106,8 +106,8 @@ if __name__ == '__main__':
 
             if test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
-            else:
-                trainer.test(test_loader) # colmap doesn't have gt, so just test.
+            
+            trainer.test(test_loader, write_video=True) # test and save video
 
             #trainer.save_mesh(resolution=256, threshold=0.1)
     
@@ -142,7 +142,7 @@ if __name__ == '__main__':
             
             if test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
-            else:
-                trainer.test(test_loader) # colmap doesn't have gt, so just test.
+            
+            trainer.test(test_loader, write_video=True) # test and save video
 
             #trainer.save_mesh(resolution=256, threshold=0.1)

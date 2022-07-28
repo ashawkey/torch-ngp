@@ -102,8 +102,10 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     if opt.test:
-
-        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=[PSNRMeter()], use_checkpoint=opt.ckpt)
+        
+        metrics = [PSNRMeter(),]
+        # metrics.append([LPIPSMeter(device=device))
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=metrics, use_checkpoint=opt.ckpt)
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer)
@@ -114,8 +116,8 @@ if __name__ == '__main__':
 
             if test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
-            else:
-                trainer.test(test_loader) # colmap doesn't have gt, so just test.
+    
+            trainer.test(test_loader, write_video=True) # test and save video
             
             #trainer.save_mesh(resolution=256, threshold=10)
     
@@ -128,7 +130,9 @@ if __name__ == '__main__':
         # decay to 0.1 * init_lr at last iter step
         scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
 
-        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=[PSNRMeter(), LPIPSMeter(device=device)], use_checkpoint=opt.ckpt, eval_interval=50)
+        metrics = [PSNRMeter(),]
+        # metrics.append([LPIPSMeter(device=device))
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=metrics, use_checkpoint=opt.ckpt, eval_interval=50)
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer, train_loader)
@@ -145,7 +149,7 @@ if __name__ == '__main__':
             
             if test_loader.has_gt:
                 trainer.evaluate(test_loader) # blender has gt, so evaluate it.
-            else:
-                trainer.test(test_loader) # colmap doesn't have gt, so just test.
+            
+            trainer.test(test_loader, write_video=True) # test and save video
             
             #trainer.save_mesh(resolution=256, threshold=10)

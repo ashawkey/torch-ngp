@@ -15,3 +15,4 @@ dearpygui
 packaging
 scipy
 lpips
+imageio

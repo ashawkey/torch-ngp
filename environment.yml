@@ -18,6 +18,7 @@ dependencies:
   - packaging
   - scipy
   - pip:
+    - imageio
     - lpips
     - torch-ema
     - PyMCubes

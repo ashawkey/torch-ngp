@@ -2,6 +2,7 @@ import os
 import glob
 import tqdm
 import math
+import imageio
 import random
 import warnings
 import tensorboardX
@@ -584,7 +585,7 @@ class Trainer(object):
         self.evaluate_one_epoch(loader, name)
         self.use_tensorboardX = use_tensorboardX
 
-    def test(self, loader, save_path=None, name=None):
+    def test(self, loader, save_path=None, name=None, write_video=True):
 
         if save_path is None:
             save_path = os.path.join(self.workspace, 'results')
@@ -598,28 +599,41 @@ class Trainer(object):
 
         pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
         self.model.eval()
+
+        if write_video:
+            all_preds = []
+            all_preds_depth = []
+
         with torch.no_grad():
 
             for i, data in enumerate(loader):
                 
                 with torch.cuda.amp.autocast(enabled=self.fp16):
-                    preds, preds_depth = self.test_step(data)                
-                
-                path = os.path.join(save_path, f'{name}_{i:04d}.png')
-                path_depth = os.path.join(save_path, f'{name}_{i:04d}_depth.png')
-
-                #self.log(f"[INFO] saving test image to {path}")
+                    preds, preds_depth = self.test_step(data)
 
                 if self.opt.color_space == 'linear':
                     preds = linear_to_srgb(preds)
 
                 pred = preds[0].detach().cpu().numpy()
-                pred_depth = preds_depth[0].detach().cpu().numpy()
+                pred = (pred * 255).astype(np.uint8)
 
-                cv2.imwrite(path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
-                cv2.imwrite(path_depth, (pred_depth * 255).astype(np.uint8))
+                pred_depth = preds_depth[0].detach().cpu().numpy()
+                pred_depth = (pred_depth * 255).astype(np.uint8)
+
+                if write_video:
+                    all_preds.append(pred)
+                    all_preds_depth.append(pred_depth)
+                else:
+                    cv2.imwrite(os.path.join(save_path, f'{name}_{i:04d}_rgb.png'), cv2.cvtColor(pred, cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(os.path.join(save_path, f'{name}_{i:04d}_depth.png'), pred_depth)
 
                 pbar.update(loader.batch_size)
+        
+        if write_video:
+            all_preds = np.stack(all_preds, axis=0)
+            all_preds_depth = np.stack(all_preds_depth, axis=0)
+            imageio.mimwrite(os.path.join(save_path, f'{name}_rgb.mp4'), all_preds, fps=25, quality=8, macro_block_size=1)
+            imageio.mimwrite(os.path.join(save_path, f'{name}_depth.mp4'), all_preds_depth, fps=25, quality=8, macro_block_size=1)
 
         self.log(f"==> Finished Test.")
     
@@ -712,8 +726,8 @@ class Trainer(object):
 
         with torch.no_grad():
             with torch.cuda.amp.autocast(enabled=self.fp16):
-                # here spp is used as perturb random seed!
-                preds, preds_depth = self.test_step(data, bg_color=bg_color, perturb=spp)
+                # here spp is used as perturb random seed! (but not perturb the first sample)
+                preds, preds_depth = self.test_step(data, bg_color=bg_color, perturb=False if spp == 1 else spp)
 
         if self.ema is not None:
             self.ema.restore()
@@ -877,9 +891,8 @@ class Trainer(object):
                         metric.update(preds, truths)
 
                     # save image
-                    save_path = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}.png')
+                    save_path = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_rgb.png')
                     save_path_depth = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_depth.png')
-                    #save_path_gt = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_gt.png')
 
                     #self.log(f"==> Saving validation image to {save_path}")
                     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -888,11 +901,13 @@ class Trainer(object):
                         preds = linear_to_srgb(preds)
 
                     pred = preds[0].detach().cpu().numpy()
+                    pred = (pred * 255).astype(np.uint8)
+
                     pred_depth = preds_depth[0].detach().cpu().numpy()
+                    pred_depth = (pred_depth * 255).astype(np.uint8)
                     
-                    cv2.imwrite(save_path, cv2.cvtColor((pred * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
-                    cv2.imwrite(save_path_depth, (pred_depth * 255).astype(np.uint8))
-                    #cv2.imwrite(save_path_gt, cv2.cvtColor((linear_to_srgb(truths[0].detach().cpu().numpy()) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(save_path, cv2.cvtColor(pred, cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(save_path_depth, pred_depth)
 
                     pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
                     pbar.update(loader.batch_size)
