@@ -44,20 +44,13 @@ class OrbitCamera:
         rotvec_y = side * np.radians(-0.1 * dy)
         self.rot = R.from_rotvec(rotvec_x) * R.from_rotvec(rotvec_y) * self.rot
 
-        # wrong: rotate along global x/y axis
-        #self.rot = R.from_euler('xy', [-dy * 0.1, -dx * 0.1], degrees=True) * self.rot
-    
     def scale(self, delta):
         self.radius *= 1.1 ** (-delta)
 
     def pan(self, dx, dy, dz=0):
         # pan in camera coordinate system (careful on the sensitivity!)
-        self.center += 0.001 * self.rot.as_matrix()[:3, :3] @ np.array([dx, dy, dz])
-
-        # wrong: pan in global coordinate system
-        #self.center += 0.001 * np.array([-dx, -dy, dz])
+        self.center += 0.0005 * self.rot.as_matrix()[:3, :3] @ np.array([dx, dy, dz])
     
-
 
 class NeRFGUI:
     def __init__(self, opt, trainer, train_loader=None, debug=True):
@@ -78,6 +71,7 @@ class NeRFGUI:
         self.render_buffer = np.zeros((self.W, self.H, 3), dtype=np.float32)
         self.need_update = True # camera moved, should reset accumulation
         self.spp = 1 # sample per pixel
+        self.mode = 'image' # choose from ['image', 'depth']
 
         self.dynamic_resolution = True
         self.downscale = 1
@@ -106,7 +100,7 @@ class NeRFGUI:
         self.step += self.train_steps
         self.need_update = True
 
-        dpg.set_value("_log_train_time", f'{t:.4f}ms')
+        dpg.set_value("_log_train_time", f'{t:.4f}ms ({int(1000/t)} FPS)')
         dpg.set_value("_log_train_log", f'step = {self.step: 5d} (+{self.train_steps: 2d}), loss = {outputs["loss"]:.4f}, lr = {outputs["lr"]:.5f}')
 
         # dynamic train steps
@@ -115,6 +109,12 @@ class NeRFGUI:
         train_steps = min(16, max(4, int(16 * 500 / full_t)))
         if train_steps > self.train_steps * 1.2 or train_steps < self.train_steps * 0.8:
             self.train_steps = train_steps
+
+    def prepare_buffer(self, outputs):
+        if self.mode == 'image':
+            return outputs['image']
+        else:
+            return np.expand_dims(outputs['depth'], -1).repeat(3, -1)
 
     
     def test_step(self):
@@ -140,14 +140,14 @@ class NeRFGUI:
                     self.downscale = downscale
 
             if self.need_update:
-                self.render_buffer = outputs['image']
+                self.render_buffer = self.prepare_buffer(outputs)
                 self.spp = 1
                 self.need_update = False
             else:
-                self.render_buffer = (self.render_buffer * self.spp + outputs['image']) / (self.spp + 1)
+                self.render_buffer = (self.render_buffer * self.spp + self.prepare_buffer(outputs)) / (self.spp + 1)
                 self.spp += 1
 
-            dpg.set_value("_log_infer_time", f'{t:.4f}ms')
+            dpg.set_value("_log_infer_time", f'{t:.4f}ms ({int(1000/t)} FPS)')
             dpg.set_value("_log_resolution", f'{int(self.downscale * self.W)}x{int(self.downscale * self.H)}')
             dpg.set_value("_log_spp", self.spp)
             dpg.set_value("_texture", self.render_buffer)
@@ -277,6 +277,13 @@ class NeRFGUI:
                     dpg.add_checkbox(label="dynamic resolution", default_value=self.dynamic_resolution, callback=callback_set_dynamic_resolution)
                     dpg.add_text(f"{self.W}x{self.H}", tag="_log_resolution")
 
+                # mode combo
+                def callback_change_mode(sender, app_data):
+                    self.mode = app_data
+                    self.need_update = True
+                
+                dpg.add_combo(('image', 'depth'), label='image_mode', default_value=self.mode, callback=callback_change_mode)
+
                 # bg_color picker
                 def callback_change_bg(sender, app_data):
                     self.bg_color = torch.tensor(app_data[:3], dtype=torch.float32) # only need RGB in [0, 1]
@@ -297,6 +304,13 @@ class NeRFGUI:
                     self.need_update = True
 
                 dpg.add_slider_float(label="dt_gamma", min_value=0, max_value=0.1, format="%.5f", default_value=self.opt.dt_gamma, callback=callback_set_dt_gamma)
+
+                # max_steps slider
+                def callback_set_max_steps(sender, app_data):
+                    self.opt.max_steps = app_data
+                    self.need_update = True
+
+                dpg.add_slider_int(label="max steps", min_value=1, max_value=1024, format="%d", default_value=self.opt.max_steps, callback=callback_set_max_steps)
 
                 # aabb slider
                 def callback_set_aabb(sender, app_data, user_data):

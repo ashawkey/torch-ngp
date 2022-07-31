@@ -371,7 +371,7 @@ __global__ void kernel_march_rays_train(
         // get mip level
         const int level = max(mip_from_pos(x, y, z, C), mip_from_dt(dt, H, C)); // range in [0, C - 1]
 
-        const float mip_bound = fminf((float)(1 << level), bound);
+        const float mip_bound = fminf(scalbnf(1.0f, level), bound);
         const float mip_rbound = 1 / mip_bound;
         
         // convert to nearest grid position
@@ -439,7 +439,7 @@ __global__ void kernel_march_rays_train(
         // get mip level
         const int level = max(mip_from_pos(x, y, z, C), mip_from_dt(dt, H, C)); // range in [0, C - 1]
 
-        const float mip_bound = fminf((float)(1 << level), bound);
+        const float mip_bound = fminf(scalbnf(1.0f, level), bound);
         const float mip_rbound = 1 / mip_bound;
         
         // convert to nearest grid position
@@ -767,7 +767,7 @@ __global__ void kernel_march_rays(
         // get mip level
         const int level = max(mip_from_pos(x, y, z, C), mip_from_dt(dt, H, C)); // range in [0, C - 1]
 
-        const float mip_bound = fminf((float)(1 << level), bound);
+        const float mip_bound = fminf(scalbnf(1, level), bound);
         const float mip_rbound = 1 / mip_bound;
         
         // convert to nearest grid position
@@ -887,7 +887,8 @@ __global__ void kernel_composite_rays(
         //printf("[n=%d] num_steps=%d, alpha=%f, w=%f, T=%f, sum_dt=%f, d=%f\n", n, step, alpha, weight, T, sum_delta, d);
 
         // ray is terminated if T is too small
-        if (T < 1e-4) break;
+        // use a larger bound to further accelerate inference
+        if (T < 1e-2f) break;
 
         // locate
         sigmas++;
