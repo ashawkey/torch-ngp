@@ -283,7 +283,7 @@ class NeRFGUI:
                     self.mode = app_data
                     self.need_update = True
                 
-                dpg.add_combo(('image', 'depth'), label='image_mode', default_value=self.mode, callback=callback_change_mode)
+                dpg.add_combo(('image', 'depth'), label='mode', default_value=self.mode, callback=callback_change_mode)
 
                 # time slider
                 def callback_set_time(sender, app_data):
