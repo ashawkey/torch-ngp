@@ -299,8 +299,8 @@ class NeRFDataset:
 
         error_map = None if self.error_map is None else self.error_map[index]
         
-        rays = get_rays(poses, self.intrinsics, self.H, self.W, self.num_rays, error_map)
-        
+        rays = get_rays(poses, self.intrinsics, self.H, self.W, self.num_rays, error_map, self.opt.patch_size)
+
         results = {
             'H': self.H,
             'W': self.W,

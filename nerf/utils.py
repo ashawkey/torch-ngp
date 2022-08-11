@@ -50,7 +50,7 @@ def srgb_to_linear(x):
 
 
 @torch.cuda.amp.autocast(enabled=False)
-def get_rays(poses, intrinsics, H, W, N=-1, error_map=None):
+def get_rays(poses, intrinsics, H, W, N=-1, error_map=None, patch_size=1):
     ''' get rays
     Args:
         poses: [B, 4, 4], cam2world
@@ -66,7 +66,7 @@ def get_rays(poses, intrinsics, H, W, N=-1, error_map=None):
     B = poses.shape[0]
     fx, fy, cx, cy = intrinsics
 
-    i, j = custom_meshgrid(torch.linspace(0, W-1, W, device=device), torch.linspace(0, H-1, H, device=device))
+    i, j = custom_meshgrid(torch.linspace(0, W-1, W, device=device), torch.linspace(0, H-1, H, device=device)) # float
     i = i.t().reshape([1, H*W]).expand([B, H*W]) + 0.5
     j = j.t().reshape([1, H*W]).expand([B, H*W]) + 0.5
 
@@ -75,7 +75,27 @@ def get_rays(poses, intrinsics, H, W, N=-1, error_map=None):
     if N > 0:
         N = min(N, H*W)
 
-        if error_map is None:
+        # if use patch-based sampling, ignore error_map
+        if patch_size > 1:
+
+            # random sample left-top cores.
+            # NOTE: this impl will lead to less sampling on the image corner pixels... but I don't have other ideas.
+            num_patch = N // (patch_size ** 2)
+            inds_x = torch.randint(0, H - patch_size, size=[num_patch], device=device)
+            inds_y = torch.randint(0, W - patch_size, size=[num_patch], device=device)
+            inds = torch.stack([inds_x, inds_y], dim=-1) # [np, 2]
+
+            # create meshgrid for each patch
+            pi, pj = custom_meshgrid(torch.arange(patch_size, device=device), torch.arange(patch_size, device=device))
+            offsets = torch.stack([pi.reshape(-1), pj.reshape(-1)], dim=-1) # [p^2, 2]
+
+            inds = inds.unsqueeze(1) + offsets.unsqueeze(0) # [np, p^2, 2]
+            inds = inds.view(-1, 2) # [N, 2]
+            inds = inds[:, 0] * W + inds[:, 1] # [N], flatten
+
+            inds = inds.expand([B, N])
+
+        elif error_map is None:
             inds = torch.randint(0, H*W, size=[N], device=device) # may duplicate
             inds = inds.expand([B, N])
         else:
@@ -311,6 +331,11 @@ class Trainer(object):
             criterion.to(self.device)
         self.criterion = criterion
 
+        # optionally use LPIPS loss for patch-based training
+        if self.opt.patch_size > 1:
+            import lpips
+            self.criterion_lpips = lpips.LPIPS(net='alex').to(self.device)
+
         if optimizer is None:
             self.optimizer = optim.Adam(self.model.parameters(), lr=0.001, weight_decay=5e-4) # naive adam
         else:
@@ -443,11 +468,24 @@ class Trainer(object):
         else:
             gt_rgb = images
 
-        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=False, **vars(self.opt))
+        # outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=False if self.opt.patch_size == 1 else True, **vars(self.opt))
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=True, **vars(self.opt))
     
         pred_rgb = outputs['image']
 
+        # MSE loss
         loss = self.criterion(pred_rgb, gt_rgb).mean(-1) # [B, N, 3] --> [B, N]
+
+        # patch-based rendering
+        if self.opt.patch_size > 1:
+            gt_rgb = gt_rgb.view(-1, self.opt.patch_size, self.opt.patch_size, 3).permute(0, 3, 1, 2).contiguous()
+            pred_rgb = pred_rgb.view(-1, self.opt.patch_size, self.opt.patch_size, 3).permute(0, 3, 1, 2).contiguous()
+
+            # torch_vis_2d(gt_rgb[0])
+            # torch_vis_2d(pred_rgb[0])
+
+            # LPIPS loss [not useful...]
+            loss = loss + 1e-3 * self.criterion_lpips(pred_rgb, gt_rgb)
 
         # special case for CCNeRF's rank-residual training
         if len(loss.shape) == 3: # [K, B, N]

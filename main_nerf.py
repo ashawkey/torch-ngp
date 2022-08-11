@@ -30,6 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('--upsample_steps', type=int, default=0, help="num steps up-sampled per ray (only valid when NOT using --cuda_ray)")
     parser.add_argument('--update_extra_interval', type=int, default=16, help="iter interval to update extra status (only valid when using --cuda_ray)")
     parser.add_argument('--max_ray_batch', type=int, default=4096, help="batch size of rays at inference to avoid OOM (only valid when NOT using --cuda_ray)")
+    parser.add_argument('--patch_size', type=int, default=1, help="[experimental] render patches in training, so as to apply LPIPS loss. 1 means disabled, use [64, 32, 16] to enable")
 
     ### network backbone options
     parser.add_argument('--fp16', action='store_true', help="use amp mixed precision training")
@@ -67,6 +68,12 @@ if __name__ == '__main__':
         opt.fp16 = True
         opt.cuda_ray = True
         opt.preload = True
+    
+    if opt.patch_size > 1:
+        opt.error_map = False # do not use error_map if use patch-based training
+        # assert opt.patch_size > 16, "patch_size should > 16 to run LPIPS loss."
+        assert opt.num_rays % (opt.patch_size ** 2) == 0, "patch_size ** 2 should be dividable by num_rays."
+
 
     if opt.ff:
         opt.fp16 = True
@@ -103,8 +110,7 @@ if __name__ == '__main__':
     
     if opt.test:
         
-        metrics = [PSNRMeter(),]
-        # metrics.append([LPIPSMeter(device=device))
+        metrics = [PSNRMeter(), LPIPSMeter(device=device)]
         trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, fp16=opt.fp16, metrics=metrics, use_checkpoint=opt.ckpt)
 
         if opt.gui:
@@ -119,7 +125,7 @@ if __name__ == '__main__':
     
             trainer.test(test_loader, write_video=True) # test and save video
             
-            #trainer.save_mesh(resolution=256, threshold=10)
+            trainer.save_mesh(resolution=256, threshold=10)
     
     else:
 
@@ -130,8 +136,7 @@ if __name__ == '__main__':
         # decay to 0.1 * init_lr at last iter step
         scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
 
-        metrics = [PSNRMeter(),]
-        # metrics.append([LPIPSMeter(device=device))
+        metrics = [PSNRMeter(), LPIPSMeter(device=device)]
         trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=metrics, use_checkpoint=opt.ckpt, eval_interval=50)
 
         if opt.gui:
@@ -152,4 +157,4 @@ if __name__ == '__main__':
             
             trainer.test(test_loader, write_video=True) # test and save video
             
-            #trainer.save_mesh(resolution=256, threshold=10)
+            trainer.save_mesh(resolution=256, threshold=10)
