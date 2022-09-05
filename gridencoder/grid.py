@@ -44,16 +44,15 @@ class _grid_encode(Function):
         if calc_grad_inputs:
             dy_dx = torch.empty(B, L * D * C, device=inputs.device, dtype=embeddings.dtype)
         else:
-            dy_dx = torch.empty(1, device=inputs.device, dtype=embeddings.dtype) # placeholder... TODO: a better way?
+            dy_dx = None
 
-        _backend.grid_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, calc_grad_inputs, dy_dx, gridtype, align_corners)
+        _backend.grid_encode_forward(inputs, embeddings, offsets, outputs, B, D, C, L, S, H, dy_dx, gridtype, align_corners)
 
         # permute back to [B, L * C]
         outputs = outputs.permute(1, 0, 2).reshape(B, L * C)
 
         ctx.save_for_backward(inputs, embeddings, offsets, dy_dx)
         ctx.dims = [B, D, C, L, S, H, gridtype]
-        ctx.calc_grad_inputs = calc_grad_inputs
         ctx.align_corners = align_corners
 
         return outputs
@@ -65,7 +64,6 @@ class _grid_encode(Function):
 
         inputs, embeddings, offsets, dy_dx = ctx.saved_tensors
         B, D, C, L, S, H, gridtype = ctx.dims
-        calc_grad_inputs = ctx.calc_grad_inputs
         align_corners = ctx.align_corners
 
         # grad: [B, L * C] --> [L, B, C]
@@ -73,18 +71,18 @@ class _grid_encode(Function):
 
         grad_embeddings = torch.zeros_like(embeddings)
 
-        if calc_grad_inputs:
+        if dy_dx is not None:
             grad_inputs = torch.zeros_like(inputs, dtype=embeddings.dtype)
         else:
-            grad_inputs = torch.zeros(1, device=inputs.device, dtype=embeddings.dtype)
+            grad_inputs = None
 
-        _backend.grid_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, S, H, calc_grad_inputs, dy_dx, grad_inputs, gridtype, align_corners)
+        _backend.grid_encode_backward(grad, inputs, embeddings, offsets, grad_embeddings, B, D, C, L, S, H, dy_dx, grad_inputs, gridtype, align_corners)
 
-        if calc_grad_inputs:
+        if dy_dx is not None:
             grad_inputs = grad_inputs.to(inputs.dtype)
-            return grad_inputs, grad_embeddings, None, None, None, None, None, None
-        else:
-            return None, grad_embeddings, None, None, None, None, None, None
+
+        return grad_inputs, grad_embeddings, None, None, None, None, None, None
+        
 
 
 grid_encode = _grid_encode.apply

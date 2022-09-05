@@ -27,13 +27,12 @@ class _sh_encoder(Function):
         if calc_grad_inputs:
             dy_dx = torch.empty(B, input_dim * output_dim, dtype=inputs.dtype, device=inputs.device)
         else:
-            dy_dx = torch.empty(1, dtype=inputs.dtype, device=inputs.device)
+            dy_dx = None
 
-        _backend.sh_encode_forward(inputs, outputs, B, input_dim, degree, calc_grad_inputs, dy_dx)
+        _backend.sh_encode_forward(inputs, outputs, B, input_dim, degree, dy_dx)
 
         ctx.save_for_backward(inputs, dy_dx)
         ctx.dims = [B, input_dim, degree]
-        ctx.calc_grad_inputs = calc_grad_inputs
 
         return outputs
     
@@ -43,9 +42,10 @@ class _sh_encoder(Function):
     def backward(ctx, grad):
         # grad: [B, C * C]
 
-        if ctx.calc_grad_inputs:
+        inputs, dy_dx = ctx.saved_tensors
+
+        if dy_dx is not None:
             grad = grad.contiguous()
-            inputs, dy_dx = ctx.saved_tensors
             B, input_dim, degree = ctx.dims
             grad_inputs = torch.zeros_like(inputs)
             _backend.sh_encode_backward(grad, inputs, B, input_dim, degree, dy_dx, grad_inputs)

@@ -651,10 +651,7 @@ __global__ void kernel_composite_rays_train_backward(
         ws += weight;
 
         T *= 1.0f - alpha;
-
-        // minimal remained transmittence
-        if (T < T_thresh) break;
-
+        
         // check https://note.kiui.moe/others/nerf_gradient/ for the gradient calculation.
         // write grad_rgbs
         grad_rgbs[0] = grad_image[0] * weight;
@@ -670,7 +667,9 @@ __global__ void kernel_composite_rays_train_backward(
         );
 
         //printf("[n=%d] num_steps=%d, T=%f, grad_sigmas=%f, r_final=%f, r=%f\n", n, step, T, grad_sigmas[0], r_final, r);
-    
+        // minimal remained transmittence
+        if (T < T_thresh) break;
+        
         // locate
         sigmas++;
         rgbs += 3;

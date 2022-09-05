@@ -29,7 +29,6 @@ __global__ void kernel_sh(
     const scalar_t * __restrict__ inputs, 
     scalar_t * outputs, 
     uint32_t B, uint32_t D, uint32_t C,
-    const bool calc_grad_inputs, 
     scalar_t * dy_dx
 ) {
 	const uint32_t b = threadIdx.x + blockIdx.x * blockDim.x;
@@ -123,7 +122,7 @@ __global__ void kernel_sh(
 
 	write_sh();
 
-	if (calc_grad_inputs) {
+	if (dy_dx) {
 		scalar_t *dx = dy_dx + b * D * C2;
 		scalar_t *dy = dx + C2;
 		scalar_t *dz = dy + C2;
@@ -385,9 +384,9 @@ __global__ void kernel_sh_backward(
 // inputs: [B, D], float, in [0, 1]
 // outputs: [B, L * C], float
 template <typename scalar_t>
-void sh_encode_forward_cuda(const scalar_t *inputs, scalar_t *outputs, const uint32_t B, const uint32_t D, const uint32_t C, const bool calc_grad_inputs, scalar_t *dy_dx) {
+void sh_encode_forward_cuda(const scalar_t *inputs, scalar_t *outputs, const uint32_t B, const uint32_t D, const uint32_t C, scalar_t *dy_dx) {
 	static constexpr uint32_t N_THREADS = 256;
-	kernel_sh<scalar_t><<<div_round_up(B, N_THREADS), N_THREADS>>>(inputs, outputs, B, D, C, calc_grad_inputs, dy_dx);
+	kernel_sh<scalar_t><<<div_round_up(B, N_THREADS), N_THREADS>>>(inputs, outputs, B, D, C, dy_dx);
 }
 
 
@@ -398,23 +397,22 @@ void sh_encode_backward_cuda(const scalar_t *grad, const scalar_t *inputs, const
 }
 
 
-
-void sh_encode_forward(at::Tensor inputs, at::Tensor outputs, const uint32_t B, const uint32_t D, const uint32_t C, const bool calc_grad_inputs, at::Tensor dy_dx) {
+void sh_encode_forward(at::Tensor inputs, at::Tensor outputs, const uint32_t B, const uint32_t D, const uint32_t C, at::optional<at::Tensor> dy_dx) {
     CHECK_CUDA(inputs);
     CHECK_CUDA(outputs);
-    CHECK_CUDA(dy_dx);
+    // CHECK_CUDA(dy_dx);
     
     CHECK_CONTIGUOUS(inputs);
     CHECK_CONTIGUOUS(outputs);
-    CHECK_CONTIGUOUS(dy_dx);
+    // CHECK_CONTIGUOUS(dy_dx);
 
     CHECK_IS_FLOATING(inputs);
     CHECK_IS_FLOATING(outputs);
-    CHECK_IS_FLOATING(dy_dx);
+    // CHECK_IS_FLOATING(dy_dx);
 
     AT_DISPATCH_FLOATING_TYPES_AND_HALF(
     inputs.scalar_type(), "sh_encode_forward_cuda", ([&] {
-		sh_encode_forward_cuda<scalar_t>(inputs.data_ptr<scalar_t>(), outputs.data_ptr<scalar_t>(), B, D, C, calc_grad_inputs, dy_dx.data_ptr<scalar_t>());
+		sh_encode_forward_cuda<scalar_t>(inputs.data_ptr<scalar_t>(), outputs.data_ptr<scalar_t>(), B, D, C, dy_dx.has_value() ? dy_dx.value().data_ptr<scalar_t>() : nullptr);
     }));	
 }
 
