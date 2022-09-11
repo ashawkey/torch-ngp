@@ -439,7 +439,7 @@ class NeRFRenderer(nn.Module):
         # mark untrained grid as -1
         self.density_grid[count == 0] = -1
 
-        #print(f'[mark untrained grid] {(count == 0).sum()} from {resolution ** 3 * self.cascade}')
+        print(f'[mark untrained grid] {(count == 0).sum()} from {self.grid_size ** 3 * self.cascade}')
 
     @torch.no_grad()
     def update_extra_state(self, decay=0.95, S=128):

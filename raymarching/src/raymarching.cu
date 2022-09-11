@@ -413,7 +413,7 @@ __global__ void kernel_march_rays_train(
     rays[ray_index * 3 + 2] = num_steps;
 
     if (num_steps == 0) return;
-    if (point_index + num_steps >= M) return;
+    if (point_index + num_steps > M) return;
 
     xyzs += point_index * 3;
     dirs += point_index * 3;
@@ -518,7 +518,7 @@ __global__ void kernel_composite_rays_train_forward(
     uint32_t num_steps = rays[n * 3 + 2];
 
     // empty ray, or ray that exceed max step count.
-    if (num_steps == 0 || offset + num_steps >= M) {
+    if (num_steps == 0 || offset + num_steps > M) {
         weights_sum[index] = 0;
         depth[index] = 0;
         image[index * 3] = 0;
@@ -621,7 +621,7 @@ __global__ void kernel_composite_rays_train_backward(
     uint32_t offset = rays[n * 3 + 1];
     uint32_t num_steps = rays[n * 3 + 2];
 
-    if (num_steps == 0 || offset + num_steps >= M) return;
+    if (num_steps == 0 || offset + num_steps > M) return;
 
     grad_weights_sum += index;
     grad_image += index * 3;
