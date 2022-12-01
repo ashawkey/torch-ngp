@@ -1,0 +1,23 @@
+<launch>
+  <node name="orb_slam2_rgbd" pkg="orb_slam2_ros"
+      type="orb_slam2_ros_rgbd" output="screen">
+
+       <remap from="camera/depth_registered/image_raw"     to="camera/depth/image"/>
+       <remap from="camera/rgb/image_raw"                  to="camera/rgb/image_color"/>  
+
+       <param name="publish_pointcloud" type="bool" value="true" />
+       <param name="publish_pose" type="bool" value="true" />
+       <param name="localize_only" type="bool" value="false" />
+       <param name="reset_map" type="bool" value="false" />
+
+       <!-- static parameters -->
+       <param name="load_map" type="bool" value="false" />
+       <param name="map_file" type="string" value="map.bin" />
+       <param name="settings_file" type="string" value="$(find orb_slam2_ros)/orb_slam2/config/TUM2.yaml" />
+       <param name="voc_file" type="string" value="$(find orb_slam2_ros)/orb_slam2/Vocabulary/ORBvoc.txt" />
+
+       <param name="pointcloud_frame_id" type="string" value="map" />
+       <param name="camera_frame_id" type="string" value="camera_link" />
+       <param name="min_num_kf_in_map" type="int" value="5" />
+  </node>
+</launch>

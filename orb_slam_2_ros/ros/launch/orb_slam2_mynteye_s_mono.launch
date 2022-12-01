@@ -1,0 +1,48 @@
+<launch>
+  <node name="orb_slam2_mono" pkg="orb_slam2_ros"
+      type="orb_slam2_ros_mono" output="screen">
+       <remap from="/camera/image_raw" to="/mynteye/left_rect/image_rect" />
+
+       <param name="publish_pointcloud" type="bool" value="true" />
+       <param name="publish_pose" type="bool" value="true" />
+       <param name="localize_only" type="bool" value="false" />
+       <param name="reset_map" type="bool" value="false" />
+
+       <!-- static parameters -->
+       <param name="load_map" type="bool" value="false" />
+       <param name="map_file" type="string" value="map.bin" />
+       <param name="voc_file" type="string" value="$(find orb_slam2_ros)/orb_slam2/Vocabulary/ORBvoc.txt" />
+
+       <param name="pointcloud_frame_id" type="string" value="map" />
+       <param name="camera_frame_id" type="string" value="camera_link" />
+       <param name="min_num_kf_in_map" type="int" value="5" />
+
+      <!-- ORB parameters -->
+      <param name="/ORBextractor/nFeatures" type="int" value="1200" />
+      <param name="/ORBextractor/scaleFactor" type="double" value="1.2" />
+      <param name="/ORBextractor/nLevels" type="int" value="8" />
+      <param name="/ORBextractor/iniThFAST" type="int" value="20" />
+      <param name="/ORBextractor/minThFAST" type="int" value="7" />
+
+       <!-- Camera parameters -->
+       <!-- Camera frames per second -->
+       <param name="camera_fps" type="int" value="30" />
+       <!-- Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale) -->
+       <param name="camera_rgb_encoding" type="bool" value="true" />
+
+        <!-- Camera calibration parameters -->
+        <!--If the node should wait for a camera_info topic to take the camera calibration data-->
+       <param name="load_calibration_from_cam" type="bool" value="false" />
+       <!-- Camera calibration and distortion parameters (OpenCV) -->
+      <param name="camera_fx" type="double" value="332.97713134460906" />
+      <param name="camera_fy" type="double" value="332.97713134460906" />
+      <param name="camera_cx" type="double" value="398.9270935058594" />
+      <param name="camera_cy" type="double" value="252.28187370300293" />
+       <!-- Camera calibration and distortion parameters (OpenCV) -->
+      <param name="camera_k1" type="double" value="0.0" />
+      <param name="camera_k2" type="double" value="0.0" />
+      <param name="camera_p1" type="double" value="0.0" />
+      <param name="camera_p2" type="double" value="0.0" />
+      <param name="camera_k3" type="double" value="0.0" />
+  </node>
+</launch>

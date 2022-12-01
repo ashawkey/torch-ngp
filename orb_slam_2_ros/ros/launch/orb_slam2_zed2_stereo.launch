@@ -1,0 +1,69 @@
+<launch>
+  <node name="slam" pkg="orb_slam2_ros"
+      type="orb_slam2_ros_stereo" output="screen">
+      <!-- Camera topics to listen on -->
+      <remap from="image_left/image_color_rect" to="/camera/left/image_rect_color" />
+      <remap from="image_right/image_color_rect" to="/camera/right/image_rect_color" />
+      <remap from="image_left/camera_info" to="/camera/left/camera_info" />
+
+      <!-- Settings -->
+      <param name="publish_pointcloud" type="bool" value="true" />
+      <param name="publish_pose" type="bool" value="true" />
+      <param name="localize_only" type="bool" value="false" />
+      <param name="reset_map" type="bool" value="false" />
+
+      <!-- Static parameters -->
+      <param name="load_map" type="bool" value="false" />
+      <param name="map_file" type="string" value="map.bin" />
+      <param name="voc_file" type="string" value="$(find orb_slam2_ros)/orb_slam2/Vocabulary/ORBvoc.txt" />
+
+      <!-- Frames -->
+      <param name="pointcloud_frame_id" type="string" value="map" />
+      <param name="camera_frame_id" type="string" value="zed2_camera_center" />
+
+      <!-- Position transform and pose topic msg will be transformed to this frame -->
+      <param name="target_frame_id" type="string" value="base_link" />
+
+      <!-- Settings -->
+      <param name="min_num_kf_in_map" type="int" value="5" />
+
+      <!-- ORB parameters -->
+      <param name="/ORBextractor/nFeatures" type="int" value="1200" />
+      <param name="/ORBextractor/scaleFactor" type="double" value="1.2" />
+      <param name="/ORBextractor/nLevels" type="int" value="8" />
+      <param name="/ORBextractor/iniThFAST" type="int" value="20" />
+      <param name="/ORBextractor/minThFAST" type="int" value="7" />
+
+      <!-- Camera parameters -->
+      <!-- Camera frames per second -->
+      <param name="camera_fps" type="int" value="30" />
+      <!-- Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale) -->
+      <param name="camera_rgb_encoding" type="bool" value="true" />
+      <!-- Close/Far threshold. Baseline times. -->
+      <param name="ThDepth" type="double" value="40.0" />
+      <!-- Depthmap values factor (what pixel value in the depth image corresponds to 1m) -->
+      <param name="depth_map_factor" type="double" value="1.0" />
+
+      <!-- Camera calibration parameters -->
+      <!-- If the node should wait for a camera_info topic to take the camera calibration data -->
+      <param name="load_calibration_from_cam" type="bool" value="false" />
+      <!-- Camera calibration and distortion parameters (OpenCV) -->
+      <!-- Following values have been based on the calibration file associated with our serial number -->
+      <!-- The values can be extracted from the calibation file acquired from https://www.stereolabs.com/developers/calib/ -->
+      <param name="camera_fx" type="double" value="527.43" />
+      <!-- f_x = (resolution_x) / (2 * tan(HFOV / 2)) -->
+      <!-- NOTE: The focal length (fx) corresponds to horizontal FOV of 101.0285! -->
+      <param name="camera_fx" type="double" value="527.43" />
+      <param name="camera_fy" type="double" value="527.185" />
+      <param name="camera_cx" type="double" value="628.97" />
+      <param name="camera_cy" type="double" value="355.755" />
+      <!-- Camera calibration and distortion parameters (OpenCV) -->
+      <param name="camera_k1" type="double" value="0.0" />
+      <param name="camera_k2" type="double" value="0.0" />
+      <param name="camera_p1" type="double" value="0.0" />
+      <param name="camera_p2" type="double" value="0.0" />
+      <param name="camera_k3" type="double" value="0.0" />
+      <!-- Stereo baseline times fx, camera_baseline = f_x * baseline (approx.) -->
+      <param name="camera_baseline" type="double" value="63.2916" /> <!-- Baseline = 119.667 -->
+  </node>
+</launch>
