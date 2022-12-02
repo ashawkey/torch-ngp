@@ -10,3 +10,7 @@
 [INFO] #parameters: 12667040
 [INFO] Loading latest checkpoint ...
 [WARN] No checkpoint found, model randomly initialized.
+[INFO] Trainer: ngp | 2022-11-30_21-20-25 | cuda | fp16 | test_install
+[INFO] #parameters: 12667040
+[INFO] Loading latest checkpoint ...
+[WARN] No checkpoint found, model randomly initialized.
