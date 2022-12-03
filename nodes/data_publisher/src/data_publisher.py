@@ -1,4 +1,9 @@
+#!/usr/bin/env python3
 import sys, os
+import json
+import argparse
+import configparser
+
 import rospy
 import cv2
 from std_msgs.msg import String, Header
@@ -20,7 +25,8 @@ class DatasetPublisher:
         self.rfiles = sorted(os.listdir(self.rpath))
         self.count = 0
         self.bridge = CvBridge()
-        self.img_dims = config['img_dims']
+        self.left_img_dims = config['left_img_dims']
+        self.right_img_dims = config['right_img_dims']
 
         # initialize left camera calibration messages
         self.left_cam_info = CameraInfo()
@@ -68,33 +74,79 @@ class DatasetPublisher:
             rmsg = self.bridge.cv2_to_imgmsg(np.array(rimg), "bgr8")
 
             self.count += 1
-            return lmsg, rmsg
+            return [lmsg, rmsg]
 
 
-    def generate_camera_info_message(self):
-        self.left_cam_info.header.stamp = rospy.Time.now()
-        self.right_cam_info.header.stamp = rospy.Time.now()
-
-    
     def publish(self):
         
-        
-
+        rate = rospy.Rate(self.rate)
 
         while not rospy.is_shutdown():
             try:
                 images = self.generate_image_message()
 
-                if images is None:
-                    lmsg_info, rmsg_info = dataset.build_camera_info()
+                if images is not None:
+                    # update camera info headers
+                    self.left_cam_info.header.stamp = rospy.Time.now()
+                    self.right_cam_info.header.stamp = rospy.Time.now()
+
+                    # publish image data
                     self.left_pub.publish(images[0])
                     self.right_pub.publish(images[1])
-                    self.left_pub_info.publish(lmsg_info)
-                    self.right_pub_info.publish(rmsg_info)
-                    rospy.loginfo("Published Images {id} and Info".format(id=dataset.count))
+                    
+                    # publish camera intrinics
+                    self.left_pub_info.publish(self.left_cam_info)
+                    self.right_pub_info.publish(self.right_cam_info)
+                    
+                    rospy.loginfo("Published Images {id} and Info".format(id=self.count))
             
             except CvBridgeError as e:
                 print(e)
 
             rate.sleep()
 
+
+if __name__ == '__main__':
+
+    #config = rospy.get_param('/data_publisher/config')
+
+    args = rospy.myargv(argv=sys.argv)
+    config_path = args[1]
+
+    print(config_path)
+
+    parser = configparser.ConfigParser()
+    parser.read(config_path)
+
+
+    config = {}
+    config['data_dir'] = parser['General']['data_dir']
+    config['left_img_dims'] = json.loads(parser.get('Left Camera', 'left_img_dims'))
+    config['right_img_dims'] = json.loads(parser.get('Right Camera', 'right_img_dims'))
+    config['left_distortion_model'] = parser['Left Camera']['left_distortion_model']
+    config['right_distortion_model'] = parser['Right Camera']['right_distortion_model']
+    config['left_K'] = json.loads(parser.get('Left Camera', 'left_K'))
+    config['left_D'] = json.loads(parser.get('Left Camera', 'left_D'))
+    config['left_R'] = json.loads(parser.get('Left Camera', 'left_R'))
+    config['left_P'] = json.loads(parser.get('Left Camera', 'left_P'))
+    config['right_K'] = json.loads(parser.get('Right Camera', 'right_K'))
+    config['right_D'] = json.loads(parser.get('Right Camera', 'right_D'))
+    config['right_R'] = json.loads(parser.get('Right Camera', 'right_R'))
+    config['right_P'] = json.loads(parser.get('Right Camera', 'right_P'))
+    config['topic_name_img_left'] = parser['ROS']['topic_name_img_left']
+    config['topic_name_img_right'] = parser['ROS']['topic_name_img_right']
+    config['topic_name_info_left'] = parser['ROS']['topic_name_info_left']
+    config['topic_name_info_right'] = parser['ROS']['topic_name_info_right']
+    config['queue_size'] = parser.getint('ROS', 'queue_size')
+    config['pub_rate'] = float(parser['ROS']['pub_rate'])
+    config['node_name'] = parser['ROS']['node_name']
+
+    print("HI")
+    print(config)
+    print(config['pub_rate'])
+    data_pub = DatasetPublisher(config)
+    data_pub.publish()
+    #try:
+    #    data_pub.publish()
+    #except rospy.ROSInterruptException:
+    #    pass 
