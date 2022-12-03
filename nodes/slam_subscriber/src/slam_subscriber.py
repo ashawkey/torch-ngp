@@ -51,9 +51,15 @@ def euler2quat(x, y, z):
     r = R.from_euler('XYZ', [x, y, z])
     return r.as_quat()
 
-def euler_to_mat(pose) #TODO: @Gadi write this :)
-    (x, y, z, eu_ang)
-    r = R.from_euler('XYZ', pose[3])
+
+def euler2mat(pose): #TODO: @Gadi write this :)
+    """
+    Convert given pose in format (x, y, z, eu_ang) to the
+    tranformation matrix format that NeRF wants.
+    Return a 4x4 np array.
+    """
+    x, y, z, eu_ang = pose # unpack given pose
+    r = R.from_euler('XYZ', eu_ang)
     transform = np.eye(4)
     transform[:3,:3] = r.as_matrix()
     transform[-1,0] = x
@@ -119,14 +125,13 @@ class SLAM_Subscriber:
             cv2.imwrite(self.img_path, cv2_img)
 
 
-
-
     def cam_info_callback(self, data):
         # TODO:
         self.cam_D = data.D
         self.h = data.height
         self.w = data.width
     
+    # transform slam pose to frame expected by NeRF
     def transform_pose(self):
         # TODO: 
 
@@ -157,20 +162,50 @@ class SLAM_Subscriber:
         
         rate = rospy.Rate(self.rate)
 
-        transforms = [] # to store 4x4 matrix for transforms.json
-        trans_file = "tranforms.json"
-
+        transforms = [] # to store list of 4x4 matrices for transforms.json
 
         # TODO: store data to write to transforms.json
         # TODO: Or, continously write data to file as we recieve it (I think this is the move)
         while not rospy.is_shutdown():
             try:
+                if self.slam_pose is not None:
+                    self.transform_pose() # updates self.trans_pose
+                    self.pub_pose_msg(self.trans_pose)
+                    mat = euler2mat(self.trans_pose) # convert to 
+                    transforms.append(mat)
 
-                rospy.loginfo("Processed slam pose and image ".format(id=self.count))
+                    rospy.loginfo("Processed slam pose and image ".format(id=self.count))
+                else:
+                    rospy.loginfo("Subscribed SLAM pose is currently None")
             except CvBridgeError as e:
                 print(e)
 
             rate.sleep()
+
+
+        ### write all data to file ###
+        data_dict = { # TODO: fill with proper values
+            "camera_angle_x": ?,
+            "camera_angle_y": ?,
+            "fl_x": ?,
+            "fl_y": ?,
+            "k1": self.cam_D[0],
+            "k2": self.cam_D[1],
+            "p1": self.cam_D[2],
+            "p2": self.cam_D[3],
+            "cx": ?,
+            "cy": ?,
+            "w": self.w
+            "h": self.h,
+            "aabb_scale": 4, #TODO: 16?
+            "frames": transforms, #TODO: FIX this
+        }
+        json_obj = json.dumps(data_dict, indent=4)
+        trans_file = self.config['data_dir'] + "tranforms.json"
+        with open(trans_file, "w") as jsonfile:
+            jsonfile.write(json_obj)
+        
+        print("\nComplete.\n")
 
 
 if __name__ == '__main__':
