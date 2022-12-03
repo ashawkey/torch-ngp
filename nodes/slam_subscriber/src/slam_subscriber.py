@@ -115,7 +115,7 @@ class SLAM_Subscriber:
 
     def img_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "   " + str(self.counter) + " Got image data from orb_slam.")
-        self.img_path = self.config['data_dir'] + "{:05d}.jpg".format(self.counter)
+        self.img_path = self.config['data_dir'] + "images/{:05d}.jpg".format(self.counter)
         try:
             # Convert your ROS Image message to OpenCV2
             cv2_img = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -221,7 +221,7 @@ if __name__ == '__main__':
         'node_name': "slam_subscriber",
         'queue_size': 10,
         'pub_rate': 2,
-        'data_dir': "/home/chris/Project/catkin_ws/src/AA275_NeRF_SLAM_Project/data/village_kitti/images/",
+        'data_dir': "/home/chris/Project/catkin_ws/src/AA275_NeRF_SLAM_Project/data/village_kitti/",
     }
     try:
         slam_sub = SLAM_Subscriber(config)
