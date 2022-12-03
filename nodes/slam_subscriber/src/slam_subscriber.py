@@ -51,8 +51,16 @@ def euler2quat(x, y, z):
     r = R.from_euler('XYZ', [x, y, z])
     return r.as_quat()
 
-def euler_to_mat #TODO: @Gadi write this :)
+def euler_to_mat(pose) #TODO: @Gadi write this :)
+    (x, y, z, eu_ang)
+    r = R.from_euler('XYZ', pose[3])
+    transform = np.eye(4)
+    transform[:3,:3] = r.as_matrix()
+    transform[-1,0] = x
+    transform[-1,1] = y
+    transform[-1,2] = z
 
+    return transform
 
 #########################################################
 # Subscriber Class
@@ -65,13 +73,22 @@ class SLAM_Subscriber:
         self.rate = config['pub_rate']
         self.bridge = CvBridge()
 
+        # pose parameters before and after transformation
         self.slam_pose = None
         self.trans_pose = None
+
+        # image store path
         self.img_path = None
+        
+        # camera info parameters
         self.cam_D = None
+        self.h = None
+        self.w = None
 
         # setup publisher to publish transformed pose data
         self.pose_pub = rospy.Publisher(config['pub_topic_name'], PoseStamped, queue_size=config['queue_size'])
+
+
 
     def pose_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "   " + str(self.counter) + " Got pose data from orb_slam.")
@@ -87,7 +104,9 @@ class SLAM_Subscriber:
         eu_ang = quat2euler([q1, q2, q3, q0])
         # set member attribute to store this pose data
         self.slam_pose = (x, y, z, eu_ang)
-    
+        
+
+
     def img_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "   " + str(self.counter) + " Got image data from orb_slam.")
         self.img_path = self.config['data_dir'] + "{:05d}.jpg".format(self.counter)
@@ -98,13 +117,20 @@ class SLAM_Subscriber:
             print(e)
         else:
             cv2.imwrite(self.img_path, cv2_img)
-    
+
+
+
+
     def cam_info_callback(self, data):
         # TODO:
         self.cam_D = data.D
+        self.h = data.height
+        self.w = data.width
     
     def transform_pose(self):
         # TODO: 
+
+        # slam_pose: (x, y, z, eu_ang)
         self.trans_pose = self.slam_pose
         
     def pub_pose_msg(self, pose):
