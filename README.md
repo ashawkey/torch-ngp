@@ -17,5 +17,9 @@ Run data publisher with `rosrun data_publisher data_publisher.py <config file>`
 For example, you could run:
 `rosrun data_publisher data_publisher.py /home/chris/Project/catkin_ws/src/AA275_NeRF_SLAM_Project/configs/Realsense_dataset_straight_road.config`.
 
+In the subscriber, edit the config['data_dir'] at the bottom of the script
+with the desired location where you want the images and transforms.json to
+be saved.
+
 Then run the subscriber //TODO
 
