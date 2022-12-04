@@ -87,7 +87,11 @@ class SLAM_Subscriber:
         self.trans_pose = None
 
         # image store path
-        self.img_path = None
+        self.img_subpath = "images/{:05d}.jpg"
+        self.img_fullpath = None
+
+        # image sharpness
+        self.sharpness = None
         
         # camera info parameters
         self.cam_D = None
@@ -118,14 +122,21 @@ class SLAM_Subscriber:
 
     def img_callback(self, data):
         rospy.loginfo(rospy.get_caller_id() + "   " + str(self.counter) + " Got image data from orb_slam.")
-        self.img_path = self.config['data_dir'] + "images/{:05d}.jpg".format(self.counter)
+        self.img_fullpath = self.config['data_dir'] + self.img_subpath.format(self.counter)
         try:
             # Convert your ROS Image message to OpenCV2
             cv2_img = self.bridge.imgmsg_to_cv2(data, "bgr8")
         except CvBridgeError as e:
             print(e)
         else:
-            cv2.imwrite(self.img_path, cv2_img)
+            cv2.imwrite(self.img_fullpath, cv2_img)
+            # get sharpness of image,
+            # see https://docs.opencv.org/3.4/d5/db5/tutorial_laplace_operator.html
+            cv2_img = cv2.GaussianBlur(cv2_img, (3, 3), 0)
+            cv2_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY) # convert to grayscale
+            out_img = cv2.Laplacian(cv2_img, cv2.CV_16S, ksize=3) # use uint16 to avoid overflow
+            out_img = cv2.convertScaleAbs(out_img) # convert back to uint8
+            self.sharpness = np.mean(out_img)
 
 
     def cam_info_callback(self, data):
@@ -143,7 +154,7 @@ class SLAM_Subscriber:
         #self.trans_pose = euler2mat(self.slam_pose)
         
     def pub_pose_msg(self, pose):
-        # given pose is format (x, y, z, eu_ang)
+        # given pose is in the format (x, y, z, eu_ang)
         p = PoseStamped()
         p.pose.position.x = pose[0]
         p.pose.position.y = pose[1]
@@ -162,21 +173,26 @@ class SLAM_Subscriber:
         rospy.init_node(self.config['node_name'], anonymous=True)
         rospy.Subscriber(self.config['pose_sub_topic_name'], PoseStamped, self.pose_callback)
         rospy.Subscriber(self.config['img_sub_topic_name'], Image, self.img_callback)
-        #rospy.Subscriber(self.config[])
+        rospy.Subscriber(self.config['cam_info_sub_topic_name'], CameraInfo, self.cam_info_callback)
         
         rate = rospy.Rate(self.rate)
 
-        transforms = [] # to store list of 4x4 matrices for transforms.json
+        frames = [] # to store list of data required for transforms.json
 
-        # TODO: store data to write to transforms.json
-        # TODO: Or, continously write data to file as we recieve it (I think this is the move)
+        # loop through all orb slam images, storing the output pose
+        # transformation matrix each time
         while not rospy.is_shutdown():
             try:
                 if self.slam_pose is not None:
                     self.transform_pose() # updates self.trans_pose
-                    self.pub_pose_msg(self.trans_pose)
-                    mat = euler2mat(self.trans_pose) # convert to 
-                    transforms.append(mat)
+                    self.pub_pose_msg(self.trans_pose) # publish transformed pose
+                    mat = euler2mat(self.trans_pose) # convert to transformation matrix
+                    frame_dict = {
+                        "file_path": self.img_subpath.format(self.counter),
+                        "sharpness": self.sharpness,
+                        "transform_matrix": mat.tolist(),
+                    }
+                    frames.append(frame_dict)
 
                     rospy.loginfo("Processed slam pose and image ".format(id=self.counter))
                 else:
@@ -188,28 +204,28 @@ class SLAM_Subscriber:
 
 
         ### write all data to file ###
-        #data_dict = { # TODO: fill with proper values
-        #    "camera_angle_x": ?,
-        #    "camera_angle_y": ?,
-        #    "fl_x": ?,
-        #    "fl_y": ?,
-        #    "k1": self.cam_D[0],
-        #    "k2": self.cam_D[1],
-        #    "p1": self.cam_D[2],
-        #    "p2": self.cam_D[3],
-        #    "cx": ?,
-        #    "cy": ?,
-        #    "w": self.w
-        #    "h": self.h,
-        #    "aabb_scale": 4, #TODO: 16?
-        #    "frames": transforms, #TODO: FIX this
-        #}
-        #json_obj = json.dumps(data_dict, indent=4)
-        #trans_file = self.config['data_dir'] + "tranforms.json"
-        #with open(trans_file, "w") as jsonfile:
-        #    jsonfile.write(json_obj)
-        #
-        #print("\nComplete.\n")
+        data_dict = { # TODO: fill with proper values
+           "camera_angle_x": 1, # TODO: update
+           "camera_angle_y": 2, # TODO: update
+           "fl_x": 3, # TODO: update
+           "fl_y": 4, # TODO: update
+           "k1": self.cam_D[0],
+           "k2": self.cam_D[1],
+           "p1": self.cam_D[2],
+           "p2": self.cam_D[3],
+           "cx": 5, # TODO: update
+           "cy": 6, # TODO: update
+           "w": self.w,
+           "h": self.h,
+           "aabb_scale": 4, #TODO: 16?
+           "frames": frames,
+        }
+        json_obj = json.dumps(data_dict, indent=4)
+        trans_file = self.config['data_dir'] + "tranforms.json"
+        with open(trans_file, "w") as jsonfile:
+           jsonfile.write(json_obj)
+        
+        print("\nComplete.\n")
 
 
 if __name__ == '__main__':
