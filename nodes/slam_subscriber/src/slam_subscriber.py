@@ -59,12 +59,15 @@ def euler2mat(pose): #TODO: @Gadi write this :)
     Return a 4x4 np array.
     """
     x, y, z, eu_ang = pose # unpack given pose
+    print(eu_ang)
     r = R.from_euler('XYZ', eu_ang)
     transform = np.eye(4)
     transform[:3,:3] = r.as_matrix()
-    transform[-1,0] = x
-    transform[-1,1] = y
-    transform[-1,2] = z
+    transform[0,-1] = x
+    transform[1,-1] = y
+    transform[2,-1] = z
+
+    print(transform)
 
     return transform
 
@@ -137,6 +140,7 @@ class SLAM_Subscriber:
 
         # slam_pose: (x, y, z, eu_ang)
         self.trans_pose = self.slam_pose
+        #self.trans_pose = euler2mat(self.slam_pose)
         
     def pub_pose_msg(self, pose):
         # given pose is format (x, y, z, eu_ang)
@@ -158,7 +162,7 @@ class SLAM_Subscriber:
         rospy.init_node(self.config['node_name'], anonymous=True)
         rospy.Subscriber(self.config['pose_sub_topic_name'], PoseStamped, self.pose_callback)
         rospy.Subscriber(self.config['img_sub_topic_name'], Image, self.img_callback)
-        rospy.Subscriber(self.config[])
+        #rospy.Subscriber(self.config[])
         
         rate = rospy.Rate(self.rate)
 
@@ -174,7 +178,7 @@ class SLAM_Subscriber:
                     mat = euler2mat(self.trans_pose) # convert to 
                     transforms.append(mat)
 
-                    rospy.loginfo("Processed slam pose and image ".format(id=self.count))
+                    rospy.loginfo("Processed slam pose and image ".format(id=self.counter))
                 else:
                     rospy.loginfo("Subscribed SLAM pose is currently None")
             except CvBridgeError as e:
@@ -184,28 +188,28 @@ class SLAM_Subscriber:
 
 
         ### write all data to file ###
-        data_dict = { # TODO: fill with proper values
-            "camera_angle_x": ?,
-            "camera_angle_y": ?,
-            "fl_x": ?,
-            "fl_y": ?,
-            "k1": self.cam_D[0],
-            "k2": self.cam_D[1],
-            "p1": self.cam_D[2],
-            "p2": self.cam_D[3],
-            "cx": ?,
-            "cy": ?,
-            "w": self.w
-            "h": self.h,
-            "aabb_scale": 4, #TODO: 16?
-            "frames": transforms, #TODO: FIX this
-        }
-        json_obj = json.dumps(data_dict, indent=4)
-        trans_file = self.config['data_dir'] + "tranforms.json"
-        with open(trans_file, "w") as jsonfile:
-            jsonfile.write(json_obj)
-        
-        print("\nComplete.\n")
+        #data_dict = { # TODO: fill with proper values
+        #    "camera_angle_x": ?,
+        #    "camera_angle_y": ?,
+        #    "fl_x": ?,
+        #    "fl_y": ?,
+        #    "k1": self.cam_D[0],
+        #    "k2": self.cam_D[1],
+        #    "p1": self.cam_D[2],
+        #    "p2": self.cam_D[3],
+        #    "cx": ?,
+        #    "cy": ?,
+        #    "w": self.w
+        #    "h": self.h,
+        #    "aabb_scale": 4, #TODO: 16?
+        #    "frames": transforms, #TODO: FIX this
+        #}
+        #json_obj = json.dumps(data_dict, indent=4)
+        #trans_file = self.config['data_dir'] + "tranforms.json"
+        #with open(trans_file, "w") as jsonfile:
+        #    jsonfile.write(json_obj)
+        #
+        #print("\nComplete.\n")
 
 
 if __name__ == '__main__':
