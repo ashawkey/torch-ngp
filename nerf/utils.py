@@ -31,6 +31,9 @@ from torch_ema import ExponentialMovingAverage
 from packaging import version as pver
 import lpips
 
+import skimage
+import skimage.metrics
+
 def custom_meshgrid(*args):
     # ref: https://pytorch.org/docs/stable/generated/torch.meshgrid.html?highlight=meshgrid#torch.meshgrid
     if pver.parse(torch.__version__) < pver.parse('1.10'):
@@ -237,6 +240,44 @@ class PSNRMeter:
 
     def report(self):
         return f'PSNR = {self.measure():.6f}'
+
+
+class SSIMMeter:
+    def __init__(self):
+        self.V = 0
+        self.N = 0
+
+    def clear(self):
+        self.V = 0
+        self.N = 0
+
+    def prepare_inputs(self, *inputs):
+        outputs = []
+        for i, inp in enumerate(inputs):
+            if torch.is_tensor(inp):
+                inp = inp.detach().cpu().numpy()
+            outputs.append(inp)
+
+        return outputs
+
+    def update(self, preds, truths):
+        preds, truths = self.prepare_inputs(preds, truths) # [B, H, W, 3], range[0, 1]
+          
+        pred, truth = preds[0], truths[0] # B=1
+        ssim = skimage.metrics.structural_similarity(pred, truth, data_range=1)
+       
+        self.V += ssim
+        self.N += 1
+
+    def measure(self):
+        return self.V / self.N
+
+    def write(self, writer, global_step, prefix=""):
+        writer.add_scalar(os.path.join(prefix, "SSIM"), self.measure(), global_step)
+
+    def report(self):
+        return f'SSIM = {self.measure():.6f}'
+
 
 class LPIPSMeter:
     def __init__(self, net='alex', device=None):
