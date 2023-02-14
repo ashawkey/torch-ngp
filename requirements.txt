@@ -16,5 +16,4 @@ packaging
 scipy
 lpips
 imageio
-scipy
-scikit-image
+torchmetrics

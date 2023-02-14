@@ -30,9 +30,7 @@ from torch_ema import ExponentialMovingAverage
 
 from packaging import version as pver
 import lpips
-
-import skimage
-import skimage.metrics
+from torchmetrics.functional import structural_similarity_index_measure
 
 def custom_meshgrid(*args):
     # ref: https://pytorch.org/docs/stable/generated/torch.meshgrid.html?highlight=meshgrid#torch.meshgrid
@@ -254,18 +252,16 @@ class SSIMMeter:
     def prepare_inputs(self, *inputs):
         outputs = []
         for i, inp in enumerate(inputs):
-            if torch.is_tensor(inp):
-                inp = inp.detach().cpu().numpy()
+            inp = inp.permute(0, 3, 1, 2).contiguous() # [B, 3, H, W]
+            inp = inp.to(self.device)
             outputs.append(inp)
-
         return outputs
 
     def update(self, preds, truths):
-        preds, truths = self.prepare_inputs(preds, truths) # [B, H, W, 3], range[0, 1]
-          
-        pred, truth = preds[0], truths[0] # B=1
-        ssim = skimage.metrics.structural_similarity(pred, truth, data_range=1)
-       
+        preds, truths = self.prepare_inputs(preds, truths) # [B, H, W, 3] --> [B, 3, H, W], range in [0, 1]
+
+        ssim = structural_similarity_index_measure(preds, truths)
+
         self.V += ssim
         self.N += 1
 
