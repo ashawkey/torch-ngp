@@ -241,9 +241,11 @@ class PSNRMeter:
 
 
 class SSIMMeter:
-    def __init__(self):
+    def __init__(self, device=None):
         self.V = 0
         self.N = 0
+
+        self.device = device if device is not None else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def clear(self):
         self.V = 0
