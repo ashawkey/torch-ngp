@@ -203,6 +203,49 @@ def extract_geometry(bound_min, bound_max, resolution, threshold, query_func):
     return vertices, triangles
 
 
+class MeanIoUMeter:
+    def __init__(self):
+        self.V = 0
+        self.N = 0
+
+    def clear(self):
+        self.V = 0
+        self.N = 0
+
+    def prepare_inputs(self, *inputs):
+        outputs = []
+        for i, inp in enumerate(inputs):
+            if torch.is_tensor(inp):
+                inp = inp.detach().cpu().numpy()
+            outputs.append(inp)
+
+        return outputs
+
+    def update(self, preds, truths):
+        preds, truths = self.prepare_inputs(preds, truths) # [B, N] or [B, H, W], range: [0, num_classes-1]
+        num_classes = preds.max() + 1
+          
+        ious = []
+        for i in range(num_classes):
+            intersection = np.logical_and(preds == i, truths == i).sum()
+            union = np.logical_or(preds == i, truths == i).sum()
+
+            if union > 0:
+                ious.append(intersection / union)
+        
+        self.V += np.mean(ious)
+        self.N += 1
+
+    def measure(self):
+        return self.V / self.N
+
+    def write(self, writer, global_step, prefix=""):
+        writer.add_scalar(os.path.join(prefix, "mIoU"), self.measure(), global_step)
+
+    def report(self):
+        return f'mIoU = {self.measure():.6f}'
+
+
 class PSNRMeter:
     def __init__(self):
         self.V = 0
@@ -1136,9 +1179,15 @@ class Trainer(object):
             except:
                 self.log("[WARN] Failed to load scaler.")
 
-class Trainer_mask(Trainer):
+
+class MaskTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # TODO: overflow issue, currently just use the same color map as gt visualization
+        self.color_map = np.multiply([
+            plt.cm.get_cmap('gist_ncar', 37)((i * 7 + 5) % 37)[:3] for i in range(37)
+        ], 255).astype(np.uint8)
 
     ### ------------------------------
 
@@ -1149,29 +1198,32 @@ class Trainer_mask(Trainer):
 
         gt_masks = data['masks'] # [B, N], N=H*W?
 
-        B, N= gt_masks.shape
+        B, N = gt_masks.shape
         num_instances = torch.unique(gt_masks).shape[0]
 
         bg_color = 1
 
-        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=False if self.opt.patch_size == 1 else True, **vars(self.opt))
+        outputs = self.model.render(rays_o, rays_d, render_mask=True, staged=False, bg_color=bg_color, perturb=True, 
+                                    force_all_rays=False if self.opt.patch_size == 1 else True, **vars(self.opt))
         # outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=True, **vars(self.opt))
     
-        pred_masks = outputs['masks'] # [B, N, num_instances]
+        pred_masks = outputs['instance_mask_logits'] # [B, N, num_instances]
+        pred_masks_flattened = pred_masks.view(-1, num_instances) # [B*N, num_instances]
+        gt_masks_flattened = gt_masks.view(-1) # [B*N]
 
         # CrossEntropy loss
-        loss = self.criterion(pred_masks, gt_masks).mean(-1) # [B, N, num_instances] --> [B, N]
+        loss = self.criterion(pred_masks_flattened, gt_masks_flattened) # [B, N], loss fn with reduction='none'
 
         # patch-based rendering
-        if self.opt.patch_size > 1:
-            gt_masks = gt_masks.view(-1, self.opt.patch_size, self.opt.patch_size).contiguous()
-            pred_masks = pred_masks.view(-1, self.opt.patch_size, self.opt.patch_size, num_instances).permute(0, 3, 1, 2).contiguous()
+        # if self.opt.patch_size > 1:
+        #     gt_masks = gt_masks.view(-1, self.opt.patch_size, self.opt.patch_size).contiguous()
+        #     pred_masks = pred_masks.view(-1, self.opt.patch_size, self.opt.patch_size, num_instances).permute(0, 3, 1, 2).contiguous()
 
-            # torch_vis_2d(gt_rgb[0])
-            # torch_vis_2d(pred_rgb[0])
+        #     # torch_vis_2d(gt_rgb[0])
+        #     # torch_vis_2d(pred_rgb[0])
 
-            # LPIPS loss [not useful...]
-            loss = loss + 1e-3 * self.criterion_lpips(gt_masks, pred_masks)
+        #     # LPIPS loss [not useful...]
+        #     loss = loss + 1e-3 * self.criterion_lpips(gt_masks, pred_masks)
 
         # special case for CCNeRF's rank-residual training
         # if len(loss.shape) == 3: # [K, B, N]
@@ -1203,6 +1255,9 @@ class Trainer_mask(Trainer):
 
         loss = loss.mean()
 
+        pred_masks = torch.softmax(pred_masks, dim=-1) # [B, N, num_instances]
+        pred_masks = pred_masks.argmax(dim=-1) # [B, N]
+
         # extra loss
         # pred_weights_sum = outputs['weights_sum'] + 1e-8
         # loss_ws = - 1e-1 * pred_weights_sum * torch.log(pred_weights_sum) # entropy to encourage weights_sum to be 0 or 1.
@@ -1214,7 +1269,7 @@ class Trainer_mask(Trainer):
 
         rays_o = data['rays_o'] # [B, N, 3]
         rays_d = data['rays_d'] # [B, N, 3]
-        masks = data['masks'] # [B, H, W, 3/4]
+        masks = data['masks'] # [B, H, W]
         B, H, W = masks.shape
 
         # eval with fixed background color
@@ -1222,34 +1277,266 @@ class Trainer_mask(Trainer):
         
         gt_masks = masks
         
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
+        outputs = self.model.render(rays_o, rays_d, render_mask=True, staged=True, 
+                                    bg_color=bg_color, perturb=False, **vars(self.opt))
 
-        # pred_rgb = outputs['image'].reshape(B, H, W, 3)
-        # pred_depth = outputs['depth'].reshape(B, H, W)
-        pred_masks = outputs['masks'].reshape(B, H, W)
+        pred_rgb = outputs['image'].reshape(B, H, W, 3)
+        pred_depth = outputs['depth'].reshape(B, H, W)
+        pred_masks = outputs['instance_mask_logits'].reshape(B, H, W, -1)
 
-        loss = self.criterion(pred_masks, gt_masks).mean()
+        pred_masks_flattened = pred_masks.view(-1, pred_masks.shape[-1]) # [B*H*W, num_instances]
+        gt_masks_flattened = gt_masks.view(-1) # [B*H*W]
 
-        # return pred_rgb, pred_depth, gt_rgb, loss
-        return pred_masks, loss
+        loss = self.criterion(pred_masks_flattened, gt_masks_flattened).mean()
+
+        pred_masks = torch.softmax(pred_masks, dim=-1) # [B, H, W, num_instances]
+        pred_masks = pred_masks.argmax(dim=-1) # [B, H, W]
+
+        return pred_rgb, pred_depth, pred_masks, gt_masks, loss
     
     def test_step(self, data, bg_color=None, perturb=False):  
 
         rays_o = data['rays_o'] # [B, N, 3]
         rays_d = data['rays_d'] # [B, N, 3]
-        H, W = data['H'], data['W']
+        B, H, W = rays_o.shape[0], data['H'], data['W']
 
         if bg_color is not None:
             bg_color = bg_color.to(self.device)
 
-        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
+        outputs = self.model.render(rays_o, rays_d, render_mask=True, staged=True, 
+                                    bg_color=bg_color, perturb=perturb, **vars(self.opt))
 
-        # pred_rgb = outputs['image'].reshape(-1, H, W, 3)
-        # pred_depth = outputs['depth'].reshape(-1, H, W)
-        pred_masks = outputs['masks'].reshape(-1, H, W)
+        pred_rgb = outputs['image'].reshape(-1, H, W, 3)
+        pred_depth = outputs['depth'].reshape(-1, H, W)
+        pred_masks = outputs['instance_mask_logits'].reshape(B, H, W, -1)
 
-        # return pred_rgb, pred_depth
-        return pred_masks
+        pred_masks = torch.softmax(pred_masks, dim=-1) # [B, H, W, num_instances]
+        pred_masks = pred_masks.argmax(dim=-1) # [B, H, W]
+
+        return pred_rgb, pred_depth, pred_masks
 
     ### ------------------------------
+
+    def test(self, loader, save_path=None, name=None, write_video=True):
+
+        if save_path is None:
+            save_path = os.path.join(self.workspace, 'results')
+
+        if name is None:
+            name = f'{self.name}_ep{self.epoch:04d}'
+
+        os.makedirs(save_path, exist_ok=True)
+        
+        self.log(f"==> Start Test, save results to {save_path}")
+
+        pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
+        self.model.eval()
+
+        if write_video:
+            all_preds = []
+            all_preds_depth = []
+            all_preds_mask = []
+
+        with torch.no_grad():
+
+            for i, data in enumerate(loader):
+                
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    preds, preds_depth, pred_mask = self.test_step(data)
+
+                if self.opt.color_space == 'linear':
+                    preds = linear_to_srgb(preds)
+
+                pred = preds[0].detach().cpu().numpy()
+                pred = (pred * 255).astype(np.uint8)
+
+                pred_depth = preds_depth[0].detach().cpu().numpy()
+                pred_depth = (pred_depth * 255).astype(np.uint8)
+
+                pred_mask = pred_mask[0].detach().cpu().numpy().astype(np.uint8)
+
+                if write_video:
+                    all_preds.append(pred)
+                    all_preds_depth.append(pred_depth)
+                    all_preds_mask.append(self.color_map[pred_mask.flatten()].reshape(pred_mask.shape + (3,)))
+                else:
+                    cv2.imwrite(os.path.join(save_path, f'{name}_{i:04d}_rgb.png'), cv2.cvtColor(pred, cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(os.path.join(save_path, f'{name}_{i:04d}_depth.png'), pred_depth)
+                    cv2.imwrite(os.path.join(save_path, f'{name}_{i:04d}_mask.png'), pred_mask)
+
+                pbar.update(loader.batch_size)
+        
+        if write_video:
+            all_preds = np.stack(all_preds, axis=0)
+            all_preds_depth = np.stack(all_preds_depth, axis=0)
+            all_preds_mask = np.stack(all_preds_mask, axis=0)
+            imageio.mimwrite(os.path.join(save_path, f'{name}_rgb.mp4'), all_preds, fps=25, quality=8, macro_block_size=1)
+            imageio.mimwrite(os.path.join(save_path, f'{name}_depth.mp4'), all_preds_depth, fps=25, quality=8, macro_block_size=1)
+            imageio.mimwrite(os.path.join(save_path, f'{name}_mask.mp4'), all_preds_mask, fps=25, quality=8, macro_block_size=1)
+
+
+        self.log(f"==> Finished Test.")
+
+    # [GUI] test on a single image
+    def test_gui(self, pose, intrinsics, W, H, bg_color=None, spp=1, downscale=1):
+        
+        # render resolution (may need downscale to for better frame rate)
+        rH = int(H * downscale)
+        rW = int(W * downscale)
+        intrinsics = intrinsics * downscale
+
+        pose = torch.from_numpy(pose).unsqueeze(0).to(self.device)
+
+        rays = get_rays(pose, intrinsics, rH, rW, -1)
+
+        data = {
+            'rays_o': rays['rays_o'],
+            'rays_d': rays['rays_d'],
+            'H': rH,
+            'W': rW,
+        }
+        
+        self.model.eval()
+
+        if self.ema is not None:
+            self.ema.store()
+            self.ema.copy_to()
+
+        with torch.no_grad():
+            with torch.cuda.amp.autocast(enabled=self.fp16):
+                # here spp is used as perturb random seed! (but not perturb the first sample)
+                preds, preds_depth, pred_mask = self.test_step(data, bg_color=bg_color, perturb=False if spp == 1 else spp)
+
+        if self.ema is not None:
+            self.ema.restore()
+
+        # interpolation to the original resolution
+        if downscale != 1:
+            # TODO: have to permute twice with torch...
+            preds = F.interpolate(preds.permute(0, 3, 1, 2), size=(H, W), mode='nearest').permute(0, 2, 3, 1).contiguous()
+            preds_depth = F.interpolate(preds_depth.unsqueeze(1), size=(H, W), mode='nearest').squeeze(1)
+            pred_mask = F.interpolate(pred_mask.unsqueeze(1), size=(H, W), mode='nearest').squeeze(1)
+
+        if self.opt.color_space == 'linear':
+            preds = linear_to_srgb(preds)
+
+        pred = preds[0].detach().cpu().numpy()
+        pred_depth = preds_depth[0].detach().cpu().numpy()
+        pred_mask = pred_mask[0].detach().cpu().numpy().astype(np.uint8)
+
+        outputs = {
+            'image': pred,
+            'depth': pred_depth,
+            'mask': pred_mask,
+        }
+
+        return outputs
+
+    def evaluate_one_epoch(self, loader, name=None):
+        self.log(f"++> Evaluate at epoch {self.epoch} ...")
+
+        if name is None:
+            name = f'{self.name}_ep{self.epoch:04d}'
+
+        total_loss = 0
+        if self.local_rank == 0:
+            for metric in self.metrics:
+                metric.clear()
+
+        self.model.eval()
+
+        if self.ema is not None:
+            self.ema.store()
+            self.ema.copy_to()
+
+        if self.local_rank == 0:
+            pbar = tqdm.tqdm(total=len(loader) * loader.batch_size, bar_format='{desc}: {percentage:3.0f}% {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]')
+
+        with torch.no_grad():
+            self.local_step = 0
+
+            for data in loader:    
+                self.local_step += 1
+
+                with torch.cuda.amp.autocast(enabled=self.fp16):
+                    preds, preds_depth, preds_mask, gt_mask, loss = self.eval_step(data)
+
+                # all_gather/reduce the statistics (NCCL only support all_*)
+                if self.world_size > 1:
+                    dist.all_reduce(loss, op=dist.ReduceOp.SUM)
+                    loss = loss / self.world_size
+                    
+                    preds_list = [torch.zeros_like(preds).to(self.device) for _ in range(self.world_size)] # [[B, ...], [B, ...], ...]
+                    dist.all_gather(preds_list, preds)
+                    preds = torch.cat(preds_list, dim=0)
+
+                    preds_depth_list = [torch.zeros_like(preds_depth).to(self.device) for _ in range(self.world_size)] # [[B, ...], [B, ...], ...]
+                    dist.all_gather(preds_depth_list, preds_depth)
+                    preds_depth = torch.cat(preds_depth_list, dim=0)
+
+                    preds_mask_list = [torch.zeros_like(preds_mask).to(self.device) for _ in range(self.world_size)] # [[B, ...], [B, ...], ...]
+                    dist.all_gather(preds_mask_list, preds_mask)
+                    preds_mask = torch.cat(preds_mask_list, dim=0)
+
+                    gt_mask_list = [torch.zeros_like(gt_mask).to(self.device) for _ in range(self.world_size)] # [[B, ...], [B, ...], ...]
+                    dist.all_gather(gt_mask_list, gt_mask)
+                    gt_mask = torch.cat(gt_mask_list, dim=0)
+                
+                loss_val = loss.item()
+                total_loss += loss_val
+
+                # only rank = 0 will perform evaluation.
+                if self.local_rank == 0:
+
+                    for metric in self.metrics:
+                        metric.update(preds_mask, gt_mask)
+
+                    # save image
+                    save_path = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_rgb.png')
+                    save_path_depth = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_depth.png')
+                    save_path_mask = os.path.join(self.workspace, 'validation', f'{name}_{self.local_step:04d}_mask.png')
+
+                    #self.log(f"==> Saving validation image to {save_path}")
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+                    if self.opt.color_space == 'linear':
+                        preds = linear_to_srgb(preds)
+
+                    pred = preds[0].detach().cpu().numpy()
+                    pred = (pred * 255).astype(np.uint8)
+
+                    pred_depth = preds_depth[0].detach().cpu().numpy()
+                    pred_depth = (pred_depth * 255).astype(np.uint8)
+
+                    pred_mask = preds_mask[0].detach().cpu().numpy().astype(np.uint8)
+                    
+                    cv2.imwrite(save_path, cv2.cvtColor(pred, cv2.COLOR_RGB2BGR))
+                    cv2.imwrite(save_path_depth, pred_depth)
+                    cv2.imwrite(save_path_mask, pred_mask)
+
+                    pbar.set_description(f"loss={loss_val:.4f} ({total_loss/self.local_step:.4f})")
+                    pbar.update(loader.batch_size)
+
+
+        average_loss = total_loss / self.local_step
+        self.stats["valid_loss"].append(average_loss)
+
+        if self.local_rank == 0:
+            pbar.close()
+            if not self.use_loss_as_metric and len(self.metrics) > 0:
+                result = self.metrics[0].measure()
+                self.stats["results"].append(result if self.best_mode == 'min' else - result) # if max mode, use -result
+            else:
+                self.stats["results"].append(average_loss) # if no metric, choose best by min loss
+
+            for metric in self.metrics:
+                self.log(metric.report(), style="blue")
+                if self.use_tensorboardX:
+                    metric.write(self.writer, self.epoch, prefix="evaluate")
+                metric.clear()
+
+        if self.ema is not None:
+            self.ema.restore()
+
+        self.log(f"++> Evaluate epoch {self.epoch} Finished.")
     

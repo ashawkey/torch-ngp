@@ -333,6 +333,7 @@ class NeRFDataset:
         loader.has_gt = self.images is not None
         return loader
 
+
 class NeRFMaskDataset:
     def __init__(self, opt, device, type='train', downscale=1, n_test=10):
         super().__init__()
@@ -397,7 +398,6 @@ class NeRFMaskDataset:
             for f in tqdm.tqdm(frames, desc=f'Loading {type} data'):
                 f_path = os.path.join(self.root_path, f['file_path'])
 
-                # there are non-exist paths in fox...
                 if not os.path.exists(f_path):
                     continue
                 
@@ -504,7 +504,7 @@ class NeRFMaskDataset:
         if self.masks is not None:
             masks = self.masks[index].to(self.device) # [B, H, W]
             if self.training:
-                masks = torch.gather(masks.view(B, -1), 1, torch.stack(rays['inds'], -1)) # [B, N]
+                masks = torch.gather(masks.view(B, -1), 1, rays['inds']) # [B, N]
             results['masks'] = masks
         
         # need inds to update error_map

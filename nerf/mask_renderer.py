@@ -86,8 +86,9 @@ class NeRFMaskRenderer(NeRFRenderer):
     def mask(self, x, mask=None, **kwargs):
         raise NotImplementedError()
 
-    def run(self, rays_o, rays_d, num_steps=128, upsample_steps=128, bg_color=None, perturb=False, **kwargs):
+    def run(self, rays_o, rays_d, render_mask, num_steps=128, upsample_steps=128, bg_color=None, perturb=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
+        # render_mask: bool, whether to render mask
         # bg_color: [3] in range [0, 1]
         # return: image: [B, N, 3], depth: [B, N]
 
@@ -183,8 +184,9 @@ class NeRFMaskRenderer(NeRFRenderer):
         #print(xyzs.shape, 'valid_rgb:', mask.sum().item())
 
         # instance mask
-        instance_mask_logits = self.mask(xyzs.reshape(-1, 3), mask=mask.reshape(-1), **density_outputs)
-        instance_mask_logits = instance_mask_logits.view(N, -1, self.num_instances) # [N, T+t, num_instances]
+        if render_mask:
+            instance_mask_logits = self.mask(xyzs.reshape(-1, 3), mask=mask.reshape(-1), **density_outputs)
+            instance_mask_logits = instance_mask_logits.view(N, -1, self.num_instances) # [N, T+t, num_instances]
 
         # calculate weight_sum (mask)
         weights_sum = weights.sum(dim=-1) # [N]
@@ -207,12 +209,14 @@ class NeRFMaskRenderer(NeRFRenderer):
         image = image + (1 - weights_sum).unsqueeze(-1) * bg_color
 
         # calculate instance mask
-        instance_mask_logits = torch.sum(weights.unsqueeze(-1) * instance_mask_logits, dim=-2) # [N, num_instances]
-        instance_mask = torch.softmax(instance_mask_logits, dim=-1) # [N, num_instances]
+        if render_mask:
+            instance_mask_logits = torch.sum(weights.unsqueeze(-1) * instance_mask_logits, dim=-2) # [N, num_instances]
+            instance_mask_logits = instance_mask_logits.view(*prefix, self.num_instances)
+        else:
+            instance_mask_logits = None
 
         image = image.view(*prefix, 3)
         depth = depth.view(*prefix)
-        instance_mask = instance_mask.view(*prefix, self.num_instances)
 
         # tmp: reg loss in mip-nerf 360
         # z_vals_shifted = torch.cat([z_vals[..., 1:], sample_dist * torch.ones_like(z_vals[..., :1])], dim=-1)
@@ -222,7 +226,7 @@ class NeRFMaskRenderer(NeRFRenderer):
         return {
             'depth': depth,
             'image': image,
-            'instance_mask': instance_mask,
+            'instance_mask_logits': instance_mask_logits,
             'weights_sum': weights_sum,
         }
 
@@ -515,8 +519,9 @@ class NeRFMaskRenderer(NeRFRenderer):
         #print(f'[density grid] min={self.density_grid.min().item():.4f}, max={self.density_grid.max().item():.4f}, mean={self.mean_density:.4f}, occ_rate={(self.density_grid > 0.01).sum() / (128**3 * self.cascade):.3f} | [step counter] mean={self.mean_count}')
 
 
-    def render(self, rays_o, rays_d, staged=False, max_ray_batch=4096, **kwargs):
+    def render(self, rays_o, rays_d, staged=False, max_ray_batch=4096, render_mask=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
+        # render_mask: bool, whether to render the instance mask
         # return: pred_rgb: [B, N, 3]
 
         if self.cuda_ray:
@@ -531,22 +536,23 @@ class NeRFMaskRenderer(NeRFRenderer):
         if staged and not self.cuda_ray:
             depth = torch.empty((B, N), device=device)
             image = torch.empty((B, N, 3), device=device)
-            instance_mask = torch.empty((B, N), device=device)
+            mask_logits = torch.empty((B, N, self.num_instances), device=device) if render_mask else None
 
             for b in range(B):
                 head = 0
                 while head < N:
                     tail = min(head + max_ray_batch, N)
-                    results_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], **kwargs)
+                    results_ = _run(rays_o[b:b+1, head:tail], rays_d[b:b+1, head:tail], render_mask, **kwargs)
                     depth[b:b+1, head:tail] = results_['depth']
                     image[b:b+1, head:tail] = results_['image']
-                    instance_mask[b:b+1, head:tail] = torch.argmax(results_['instance_mask'], dim=-1)
+                    if render_mask:
+                        mask_logits[b:b+1, head:tail] = results_['instance_mask_logits']
                     head += max_ray_batch
             
             results = {}
             results['depth'] = depth
             results['image'] = image
-            results['instance_mask'] = instance_mask
+            results['instance_mask_logits'] = mask_logits
 
         else:
             results = _run(rays_o, rays_d, **kwargs)
