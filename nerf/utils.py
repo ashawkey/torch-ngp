@@ -1219,6 +1219,7 @@ class MaskTrainer(Trainer):
         gt_masks_flattened = gt_masks.view(-1) # [B*N]
 
         # CrossEntropy loss
+        
         loss = self.criterion(pred_masks_flattened, gt_masks_flattened) # [B, N], loss fn with reduction='none'
 
         # patch-based rendering

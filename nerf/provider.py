@@ -375,9 +375,9 @@ class NeRFMaskDataset:
         
         # find number of instances in this scene
         if 'bounding_boxes' in transform:
-            self.num_instances = len(transform['bounding_boxes'])
+            self.num_instances = len(transform['bounding_boxes']) + 1 # +1 for the background
         else:
-            self.num_instances = 3 # must hardcode a number somewhere...
+            self.num_instances = 2 # must hardcode a number somewhere...
         
         # read images
         frames = transform["frames"]
