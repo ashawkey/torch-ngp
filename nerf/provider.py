@@ -14,6 +14,8 @@ from torch.utils.data import DataLoader
 
 from .utils import get_rays
 
+import h5py
+
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
 def nerf_matrix_to_ngp(pose, scale=0.33, offset=[0, 0, 0]):
@@ -314,6 +316,196 @@ class NeRFDataset:
                 C = images.shape[-1]
                 images = torch.gather(images.view(B, -1, C), 1, torch.stack(C * [rays['inds']], -1)) # [B, N, 3/4]
             results['images'] = images
+        
+        # need inds to update error_map
+        if error_map is not None:
+            results['index'] = index
+            results['inds_coarse'] = rays['inds_coarse']
+            
+        return results
+
+    def dataloader(self):
+        size = len(self.poses)
+        if self.training and self.rand_pose > 0:
+            size += size // self.rand_pose # index >= size means we use random pose.
+        loader = DataLoader(list(range(size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
+        loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
+        loader.has_gt = self.images is not None
+        return loader
+
+class NeRFMaskDataset:
+    def __init__(self, opt, device, type='train', downscale=1, n_test=10):
+        super().__init__()
+        
+        self.opt = opt
+        self.device = device
+        self.type = type # train, val, test
+        self.downscale = downscale
+        self.root_path = opt.path
+        self.preload = opt.preload # preload data into GPU
+        self.scale = opt.scale # camera radius scale to make sure camera are inside the bounding box.
+        self.offset = opt.offset # camera offset
+        self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
+        self.fp16 = opt.fp16 # if preload, load into fp16.
+
+        self.training = self.type in ['train', 'all', 'trainval']
+        self.num_rays = self.opt.num_rays if self.training else -1
+
+        self.rand_pose = opt.rand_pose
+
+        if type == 'trainval' or type == 'test': # in test mode, interpolate new frames
+            with open(os.path.join(self.root_path, f'train_transforms.json'), 'r') as f:
+                transform = json.load(f)
+            with open(os.path.join(self.root_path, f'val_transforms.json'), 'r') as f:
+                transform_val = json.load(f)
+            transform['frames'].extend(transform_val['frames'])
+        # only load one specified split
+        else:
+            with open(os.path.join(self.root_path, f'{type}_transforms.json'), 'r') as f:
+                transform = json.load(f)
+
+        # load image size
+        if 'h' in transform and 'w' in transform:
+            self.H = int(transform['h']) // downscale
+            self.W = int(transform['w']) // downscale
+        else:
+            # we have to actually read an image to get H and W later.
+            self.H = self.W = None
+        
+        # read images
+        frames = transform["frames"]
+        
+        # for colmap, manually interpolate a test set.
+        if type == 'test':
+            # choose two random poses, and interpolate between.
+            f0, f1 = np.random.choice(frames, 2, replace=False)
+            pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
+            pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
+            rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
+            slerp = Slerp([0, 1], rots)
+
+            self.images = None
+            for i in range(n_test + 1):
+                ratio = np.sin(((i / n_test) - 0.5) * np.pi) * 0.5 + 0.5
+                pose = np.eye(4, dtype=np.float32)
+                pose[:3, :3] = slerp(ratio).as_matrix()
+                pose[:3, 3] = (1 - ratio) * pose0[:3, 3] + ratio * pose1[:3, 3]
+                self.poses.append(pose)
+        else:
+            self.poses = []
+            self.masks = []
+            for f in tqdm.tqdm(frames, desc=f'Loading {type} data'):
+                f_path = os.path.join(self.root_path, f['file_path'])
+
+                # there are non-exist paths in fox...
+                if not os.path.exists(f_path):
+                    continue
+                
+                pose = np.array(f['transform_matrix'], dtype=np.float32) # [4, 4]
+                pose = nerf_matrix_to_ngp(pose, scale=self.scale, offset=self.offset)
+
+                mask_data = h5py.File(f_path, 'r')
+                mask = np.array(mask_data['cp_instance_id_segmaps'][:])
+                if self.H is None or self.W is None:
+                    self.H = mask.shape[0] // downscale
+                    self.W = mask.shape[1] // downscale
+
+                if mask.shape[0] != self.H or mask.shape[1] != self.W:
+                    mask = cv2.resize(mask, (self.W, self.H), interpolation=cv2.INTER_AREA)
+
+                self.poses.append(pose)
+                self.masks.append(mask)
+            
+        self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
+        if self.masks is not None:
+            self.masks = torch.from_numpy(np.stack(self.masks, axis=0)) # [N, H, W, C]
+        
+        # calculate mean radius of all camera poses
+        self.radius = self.poses[:, :3, 3].norm(dim=-1).mean(0).item()
+        #print(f'[INFO] dataset camera poses: radius = {self.radius:.4f}, bound = {self.bound}')
+
+        # initialize error_map
+        if self.training and self.opt.error_map:
+            self.error_map = torch.ones([self.masks.shape[0], 128 * 128], dtype=torch.float) # [B, 128 * 128], flattened for easy indexing, fixed resolution...
+        else:
+            self.error_map = None
+
+        # [debug] uncomment to view all training poses.
+        # visualize_poses(self.poses.numpy())
+
+        # [debug] uncomment to view examples of randomly generated poses.
+        # visualize_poses(rand_poses(100, self.device, radius=self.radius).cpu().numpy())
+
+        if self.preload:
+            self.poses = self.poses.to(self.device)
+            if self.masks is not None:
+                # TODO: linear use pow, but pow for half is only available for torch >= 1.10 ?
+                if self.fp16 and self.opt.color_space != 'linear':
+                    dtype = torch.half
+                else:
+                    dtype = torch.float
+                self.masks = self.masks.to(dtype).to(self.device)
+            if self.error_map is not None:
+                self.error_map = self.error_map.to(self.device)
+
+        # load intrinsics
+        if 'fl_x' in transform or 'fl_y' in transform:
+            fl_x = (transform['fl_x'] if 'fl_x' in transform else transform['fl_y']) / downscale
+            fl_y = (transform['fl_y'] if 'fl_y' in transform else transform['fl_x']) / downscale
+        elif 'camera_angle_x' in transform or 'camera_angle_y' in transform:
+            # blender, assert in radians. already downscaled since we use H/W
+            fl_x = self.W / (2 * np.tan(transform['camera_angle_x'] / 2)) if 'camera_angle_x' in transform else None
+            fl_y = self.H / (2 * np.tan(transform['camera_angle_y'] / 2)) if 'camera_angle_y' in transform else None
+            if fl_x is None: fl_x = fl_y
+            if fl_y is None: fl_y = fl_x
+        else:
+            raise RuntimeError('Failed to load focal length, please check the transforms.json!')
+
+        cx = (transform['cx'] / downscale) if 'cx' in transform else (self.W / 2)
+        cy = (transform['cy'] / downscale) if 'cy' in transform else (self.H / 2)
+    
+        self.intrinsics = np.array([fl_x, fl_y, cx, cy])
+
+
+    def collate(self, index):
+
+        B = len(index) # a list of length 1
+
+        # random pose without gt images.
+        if self.rand_pose == 0 or index[0] >= len(self.poses):
+
+            poses = rand_poses(B, self.device, radius=self.radius)
+
+            # sample a low-resolution but full image for CLIP
+            s = np.sqrt(self.H * self.W / self.num_rays) # only in training, assert num_rays > 0
+            rH, rW = int(self.H / s), int(self.W / s)
+            rays = get_rays(poses, self.intrinsics / s, rH, rW, -1)
+
+            return {
+                'H': rH,
+                'W': rW,
+                'rays_o': rays['rays_o'],
+                'rays_d': rays['rays_d'],    
+            }
+
+        poses = self.poses[index].to(self.device) # [B, 4, 4]
+
+        error_map = None if self.error_map is None else self.error_map[index]
+        
+        rays = get_rays(poses, self.intrinsics, self.H, self.W, self.num_rays, error_map, self.opt.patch_size)
+
+        results = {
+            'H': self.H,
+            'W': self.W,
+            'rays_o': rays['rays_o'],
+            'rays_d': rays['rays_d'],
+        }
+
+        if self.masks is not None:
+            masks = self.masks[index].to(self.device) # [B, H, W]
+            if self.training:
+                masks = torch.gather(masks.view(B, -1), 1, torch.stack(rays['inds'], -1)) # [B, N]
+            results['masks'] = masks
         
         # need inds to update error_map
         if error_map is not None:

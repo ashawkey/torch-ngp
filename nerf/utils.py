@@ -1135,3 +1135,121 @@ class Trainer(object):
                 self.log("[INFO] loaded scaler.")
             except:
                 self.log("[WARN] Failed to load scaler.")
+
+class Trainer_mask(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    ### ------------------------------
+
+    def train_step(self, data):
+
+        rays_o = data['rays_o'] # [B, N, 3]
+        rays_d = data['rays_d'] # [B, N, 3]
+
+        gt_masks = data['masks'] # [B, N], N=H*W?
+
+        B, N= gt_masks.shape
+        num_instances = torch.unique(gt_masks).shape[0]
+
+        bg_color = 1
+
+        outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=False if self.opt.patch_size == 1 else True, **vars(self.opt))
+        # outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=True, **vars(self.opt))
+    
+        pred_masks = outputs['masks'] # [B, N, num_instances]
+
+        # CrossEntropy loss
+        loss = self.criterion(pred_masks, gt_masks).mean(-1) # [B, N, num_instances] --> [B, N]
+
+        # patch-based rendering
+        if self.opt.patch_size > 1:
+            gt_masks = gt_masks.view(-1, self.opt.patch_size, self.opt.patch_size).contiguous()
+            pred_masks = pred_masks.view(-1, self.opt.patch_size, self.opt.patch_size, num_instances).permute(0, 3, 1, 2).contiguous()
+
+            # torch_vis_2d(gt_rgb[0])
+            # torch_vis_2d(pred_rgb[0])
+
+            # LPIPS loss [not useful...]
+            loss = loss + 1e-3 * self.criterion_lpips(gt_masks, pred_masks)
+
+        # special case for CCNeRF's rank-residual training
+        # if len(loss.shape) == 3: # [K, B, N]
+        #     loss = loss.mean(0)
+
+        # update error_map
+        if self.error_map is not None:
+            index = data['index'] # [B]
+            inds = data['inds_coarse'] # [B, N]
+
+            # take out, this is an advanced indexing and the copy is unavoidable.
+            error_map = self.error_map[index] # [B, H * W]
+
+            # [debug] uncomment to save and visualize error map
+            # if self.global_step % 1001 == 0:
+            #     tmp = error_map[0].view(128, 128).cpu().numpy()
+            #     print(f'[write error map] {tmp.shape} {tmp.min()} ~ {tmp.max()}')
+            #     tmp = (tmp - tmp.min()) / (tmp.max() - tmp.min())
+            #     cv2.imwrite(os.path.join(self.workspace, f'{self.global_step}.jpg'), (tmp * 255).astype(np.uint8))
+
+            error = loss.detach().to(error_map.device) # [B, N], already in [0, 1]
+            
+            # ema update
+            ema_error = 0.1 * error_map.gather(1, inds) + 0.9 * error
+            error_map.scatter_(1, inds, ema_error)
+
+            # put back
+            self.error_map[index] = error_map
+
+        loss = loss.mean()
+
+        # extra loss
+        # pred_weights_sum = outputs['weights_sum'] + 1e-8
+        # loss_ws = - 1e-1 * pred_weights_sum * torch.log(pred_weights_sum) # entropy to encourage weights_sum to be 0 or 1.
+        # loss = loss + loss_ws.mean()
+
+        return pred_masks, gt_masks, loss
+    
+    def eval_step(self, data):
+
+        rays_o = data['rays_o'] # [B, N, 3]
+        rays_d = data['rays_d'] # [B, N, 3]
+        masks = data['masks'] # [B, H, W, 3/4]
+        B, H, W = masks.shape
+
+        # eval with fixed background color
+        bg_color = 1
+        
+        gt_masks = masks
+        
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=False, **vars(self.opt))
+
+        # pred_rgb = outputs['image'].reshape(B, H, W, 3)
+        # pred_depth = outputs['depth'].reshape(B, H, W)
+        pred_masks = outputs['masks'].reshape(B, H, W)
+
+        loss = self.criterion(pred_masks, gt_masks).mean()
+
+        # return pred_rgb, pred_depth, gt_rgb, loss
+        return pred_masks, loss
+    
+    def test_step(self, data, bg_color=None, perturb=False):  
+
+        rays_o = data['rays_o'] # [B, N, 3]
+        rays_d = data['rays_d'] # [B, N, 3]
+        H, W = data['H'], data['W']
+
+        if bg_color is not None:
+            bg_color = bg_color.to(self.device)
+
+        outputs = self.model.render(rays_o, rays_d, staged=True, bg_color=bg_color, perturb=perturb, **vars(self.opt))
+
+        # pred_rgb = outputs['image'].reshape(-1, H, W, 3)
+        # pred_depth = outputs['depth'].reshape(-1, H, W)
+        pred_masks = outputs['masks'].reshape(-1, H, W)
+
+        # return pred_rgb, pred_depth
+        return pred_masks
+
+    ### ------------------------------
+    
