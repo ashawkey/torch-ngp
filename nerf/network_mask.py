@@ -25,7 +25,7 @@ class NeRFNetwork(NeRFMaskRenderer):
                  bound=1,
                  **kwargs,
                  ):
-        super().__init__(bound, **kwargs)
+        super().__init__(bound, num_instances=num_instances, **kwargs)
 
         # sigma network
         self.num_layers = num_layers
@@ -236,7 +236,7 @@ class NeRFNetwork(NeRFMaskRenderer):
                 return mask_logits
             x = x[mask]
             geo_feat = geo_feat[mask]
-
+        
         h = self.encoder_mask(x, bound=self.bound)
         h = torch.cat([h, geo_feat], dim=-1)
         for l in range(self.num_layers_mask):
@@ -244,6 +244,9 @@ class NeRFNetwork(NeRFMaskRenderer):
             if l != self.num_layers_mask - 1:
                 h = F.relu(h, inplace=True)
 
+        # print(mask_logits.shape)
+        # print(mask.shape)
+        # exit()
         if mask is not None:
             mask_logits[mask] = h.to(mask_logits.dtype)
         else:

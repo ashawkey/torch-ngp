@@ -86,7 +86,7 @@ class NeRFMaskRenderer(NeRFRenderer):
     def mask(self, x, mask=None, **kwargs):
         raise NotImplementedError()
 
-    def run(self, rays_o, rays_d, render_mask, num_steps=128, upsample_steps=128, bg_color=None, perturb=False, **kwargs):
+    def run(self, rays_o, rays_d, render_mask=True, num_steps=128, upsample_steps=128, bg_color=None, perturb=False, **kwargs):
         # rays_o, rays_d: [B, N, 3], assumes B == 1
         # render_mask: bool, whether to render mask
         # bg_color: [3] in range [0, 1]

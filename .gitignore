@@ -17,3 +17,6 @@ dnerf/network_basis_perpoint.py
 neus/
 
 *_data
+*_render
+workspace
+*.sh

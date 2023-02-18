@@ -373,6 +373,12 @@ class NeRFMaskDataset:
             # we have to actually read an image to get H and W later.
             self.H = self.W = None
         
+        # find number of instances in this scene
+        if 'bounding_boxes' in transform:
+            self.num_instances = len(transform['bounding_boxes'])
+        else:
+            self.num_instances = 3 # must hardcode a number somewhere...
+        
         # read images
         frames = transform["frames"]
         
@@ -385,7 +391,8 @@ class NeRFMaskDataset:
             rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
             slerp = Slerp([0, 1], rots)
 
-            self.images = None
+            self.masks = None
+            self.poses = []
             for i in range(n_test + 1):
                 ratio = np.sin(((i / n_test) - 0.5) * np.pi) * 0.5 + 0.5
                 pose = np.eye(4, dtype=np.float32)
@@ -520,5 +527,5 @@ class NeRFMaskDataset:
             size += size // self.rand_pose # index >= size means we use random pose.
         loader = DataLoader(list(range(size)), batch_size=1, collate_fn=self.collate, shuffle=self.training, num_workers=0)
         loader._data = self # an ugly fix... we need to access error_map & poses in trainer.
-        loader.has_gt = self.images is not None
+        loader.has_gt = self.masks is not None
         return loader

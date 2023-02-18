@@ -20,6 +20,7 @@ class NeRFNetwork(NeRFRenderer):
                  num_layers_bg=2,
                  hidden_dim_bg=64,
                  bound=1,
+                 num_instances=None, # not used, but kept for compatibility
                  **kwargs,
                  ):
         super().__init__(bound, **kwargs)

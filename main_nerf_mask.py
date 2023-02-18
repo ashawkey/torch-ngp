@@ -2,13 +2,13 @@ import torch
 import argparse
 
 from nerf.provider import NeRFMaskDataset, NeRFDataset
-from nerf.gui import NeRFGUI
+# from nerf.gui import NeRFGUI
 from nerf.utils import *
 
 from functools import partial
 from loss import huber_loss
 
-#torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(True)
 
 if __name__ == '__main__':
 
@@ -23,6 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('--iters', type=int, default=30000, help="training iters")
     parser.add_argument('--lr', type=float, default=1e-2, help="initial learning rate")
     parser.add_argument('--ckpt', type=str, default='latest')
+    parser.add_argument('--load_model_only', action='store_true', help="load model only, ignore optimizer and scheduler.")
     parser.add_argument('--num_rays', type=int, default=4096, help="num rays sampled per image for each training step")
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
     parser.add_argument('--max_steps', type=int, default=1024, help="max num steps sampled per ray (only valid when using --cuda_ray)")
@@ -79,35 +80,38 @@ if __name__ == '__main__':
 
 
     if opt.ff:
+        raise NotImplementedError()
         opt.fp16 = True
         assert opt.bg_radius <= 0, "background model is not implemented for --ff"
-        raise NotImplementedError()
         from nerf.network_ff import NeRFNetwork
     elif opt.tcnn:
+        raise NotImplementedError()
         opt.fp16 = True
         assert opt.bg_radius <= 0, "background model is not implemented for --tcnn"
-        raise NotImplementedError()
         from nerf.network_tcnn import NeRFNetwork
     else:
-        from nerf.network_mask import NeRFNetwork
+        if opt.train_mask:
+            from nerf.network_mask import NeRFNetwork
+        else:
+            from nerf.network import NeRFNetwork
+            
 
     print(opt)
     
     seed_everything(opt.seed)
-
-    model = NeRFNetwork(
-        encoding="hashgrid",
-        bound=opt.bound,
-        cuda_ray=opt.cuda_ray,
-        density_scale=1,
-        min_near=opt.min_near,
-        density_thresh=opt.density_thresh,
-        bg_radius=opt.bg_radius,
-    )
     
-    print(model)
+    # model = NeRFNetwork(
+    #     encoding="hashgrid",
+    #     bound=opt.bound,
+    #     cuda_ray=opt.cuda_ray,
+    #     density_scale=1,
+    #     min_near=opt.min_near,
+    #     density_thresh=opt.density_thresh,
+    #     bg_radius=opt.bg_radius,
+    # )
+    # print(model)
 
-    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    criterion = torch.nn.CrossEntropyLoss(reduction='none') if opt.train_mask else torch.nn.MSELoss(reduction='none') 
     # criterion = torch.nn.MSELoss(reduction='none')
     #criterion = partial(huber_loss, reduction='none')
     #criterion = torch.nn.HuberLoss(reduction='none', beta=0.1) # only available after torch 1.10 ?
@@ -126,7 +130,7 @@ if __name__ == '__main__':
             metrics.append(MeanIoUMeter())
 
         trainer = Trainer_('ngp', opt, model, device=device, workspace=opt.workspace, criterion=criterion, 
-                           fp16=opt.fp16, metrics=metrics, use_checkpoint=opt.ckpt)                         
+                           fp16=opt.fp16, metrics=metrics, use_checkpoint=opt.ckpt, load_model_only=opt.load_model_only)                         
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer)
@@ -145,8 +149,20 @@ if __name__ == '__main__':
     else:
 
         optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr), betas=(0.9, 0.99), eps=1e-15)
-
         train_loader = Dataset_(opt, device=device, type='train').dataloader()
+        num_instances = train_loader._data.num_instances if opt.train_mask else None
+
+        model = NeRFNetwork(
+            encoding="hashgrid",
+            bound=opt.bound,
+            cuda_ray=opt.cuda_ray,
+            density_scale=1,
+            min_near=opt.min_near,
+            density_thresh=opt.density_thresh,
+            bg_radius=opt.bg_radius,
+            num_instances=num_instances,
+        )
+        print(model)
 
         # decay to 0.1 * init_lr at last iter step
         scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
@@ -160,7 +176,7 @@ if __name__ == '__main__':
         trainer = Trainer_('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, 
                            criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, 
                            scheduler_update_every_step=True, metrics=metrics, use_checkpoint=opt.ckpt, 
-                           eval_interval=50)
+                           eval_interval=50, load_model_only=opt.load_model_only)
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer, train_loader)

@@ -380,6 +380,7 @@ class Trainer(object):
                  use_checkpoint="latest", # which ckpt to use at init time
                  use_tensorboardX=True, # whether to use tensorboard for logging
                  scheduler_update_every_step=False, # whether to call scheduler.step() after every train step
+                 load_model_only=False, # if True, will not load optimizer, scheduler, etc. 
                  ):
         
         self.name = name
@@ -483,7 +484,7 @@ class Trainer(object):
                     self.load_checkpoint()
             else: # path to ckpt
                 self.log(f"[INFO] Loading {self.use_checkpoint} ...")
-                self.load_checkpoint(self.use_checkpoint)
+                self.load_checkpoint(self.use_checkpoint, model_only=load_model_only)
         
         # clip loss prepare
         if opt.rand_pose >= 0: # =0 means only using CLIP loss, >0 means a hybrid mode.
@@ -1142,7 +1143,11 @@ class Trainer(object):
             self.log(f"[WARN] unexpected keys: {unexpected_keys}")   
 
         if self.ema is not None and 'ema' in checkpoint_dict:
-            self.ema.load_state_dict(checkpoint_dict['ema'])
+            try:
+                self.ema.load_state_dict(checkpoint_dict['ema'])
+                self.log("[INFO] loaded ema.")
+            except:
+                self.log("[WARN] Failed to load ema.")
 
         if self.model.cuda_ray:
             if 'mean_count' in checkpoint_dict:
@@ -1189,6 +1194,8 @@ class MaskTrainer(Trainer):
             plt.cm.get_cmap('gist_ncar', 37)((i * 7 + 5) % 37)[:3] for i in range(37)
         ], 255).astype(np.uint8)
 
+        self.num_instances = self.model.num_instances
+
     ### ------------------------------
 
     def train_step(self, data):
@@ -1199,7 +1206,7 @@ class MaskTrainer(Trainer):
         gt_masks = data['masks'] # [B, N], N=H*W?
 
         B, N = gt_masks.shape
-        num_instances = torch.unique(gt_masks).shape[0]
+        # num_instances = torch.unique(gt_masks).shape[0]
 
         bg_color = 1
 
@@ -1208,7 +1215,7 @@ class MaskTrainer(Trainer):
         # outputs = self.model.render(rays_o, rays_d, staged=False, bg_color=bg_color, perturb=True, force_all_rays=True, **vars(self.opt))
     
         pred_masks = outputs['instance_mask_logits'] # [B, N, num_instances]
-        pred_masks_flattened = pred_masks.view(-1, num_instances) # [B*N, num_instances]
+        pred_masks_flattened = pred_masks.view(-1, self.num_instances) # [B*N, num_instances]
         gt_masks_flattened = gt_masks.view(-1) # [B*N]
 
         # CrossEntropy loss
